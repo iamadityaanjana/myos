@@ -1,0 +1,43 @@
+# Ignore build products
+dist/
+build/
+obj/
+*.bin
+*.elf
+*.hex
+
+# Temporary files
+*.o
+*.d
+*.tmp
+*.log
+
+# Editor backups and macOS files
+*~
+*.swp
+.DS_Store
+
+# LaTeX auxiliary files
+*.aux
+*.log
+*.toc
+*.out
+*.lof
+*.lot
+*.fls
+*.fdb_latexmk
+
+# Makefile output
+Makefile~
+
+# Ignore generated presentation
+presentation/*.pdf
+
+# Bootloader and kernel build artefacts
+boot/*.bin
+kernel/*.o
+
+# Ignore any user-specific files
+.env
+
+# Ignore gitignore itself if editing? not needed

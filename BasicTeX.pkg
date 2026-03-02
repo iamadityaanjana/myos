@@ -1,0 +1,302 @@
+<!-- $Id: header.html,v 1.3 2025/07/14 17:33:41 karl Exp $ -->
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="stylesheet" href="/tugstyle.css">
+
+<meta name="color-scheme" content="light dark">
+<style>
+@media (prefers-color-scheme: dark) {
+  *, *::before, *::after {
+    background-color: revert !important;
+    color: revert !important;
+ }
+}
+</style>
+<!-- end header -->
+
+<title>MacTeX - TeX Users Group</title>
+</head><body>
+
+
+
+<table width=100%>
+<tr>
+<td>
+
+<td><A HREF="./mainpage2025.html">
+<img align="left" border=0 src="./images/mactexlogoX5.png">
+</td>
+<td align='center'>
+&nbsp;
+</td>
+<td><A HREF="https://tug.org">
+    <img valign="top" align="right" border=0 alt="logonavy"
+    SRC="images/logonavy.jpg" WIDTH="80"></A>
+</td>
+</tr>
+</table>
+<hr>
+
+<BR>
+<BR>
+<BR>
+<DIV ALIGN='center'>
+<FONT SIZE="+2"><B>Downloading MacTeX 2025</B></FONT>
+</DIV>
+<BR>
+
+<p> MacTeX-2025 requires macOS 10.14 or higher. These systems are named Mojave, Catalina, Big Sur, Monterey, Ventura, Sonoma, and Sequoia.  It runs natively on both Arm and Intel machines. The same source code is used to compile both types of code, so Apple's Arm and Intel machines are on exactly the same footing. All install packages are  developer-signed and notarized by Apple. 
+
+<p> One  program, asymptote, does not run on Mojave but runs on Catalina and higher. 
+This program is a recent addition to TeX Live and was seldom used on Mojave.
+
+<p> Click the link below to download. <!-- Download with Safari <I>strongly recommended</I>. -->
+While downloading, please skim the rest of the page.
+Users who run into trouble sometimes write us without noticing that the solution is on this very page.  
+
+
+
+<p><center>
+<a href="https://mirror.ctan.org/systems/mac/mactex/MacTeX.pkg"><b>MacTeX.pkg</b></a>.
+</center>
+<!--
+WARNING: The link below leads to a multiplexer which connects to
+various CTAN servers. For the first few days of a release, these servers provide
+MacTeX-2021 rather than the new release. Wait a few days 
+after 2025/04/03 before downloading.
+-->
+<p><center>The Size is   
+6.4G	- 27 February 2026
+
+</center>
+<p><center>The MD5 sum is <b>
+2d698755b17afe8800ddddd5db7b6fb9
+ 
+</b>
+</center>
+<p><center>The SHA512 sum is
+<b>
+93a853296afdec6eb2b30d9efeef028c87e607179bcdea19804e09e6c38e391d533620f84545293b4<wbr>e448ca0dcaebccc62a11e0093bf2340f0906b02415017b5 
+</b>
+</center>
+<BR>
+
+
+</DIV>
+<BR>
+<TR><TD ALIGN='LEFT'>
+<BR>
+<DIV ALIGN='center'>
+<FONT SIZE="+2"><B>Installing MacTeX</B></FONT>
+</DIV>
+<BR>
+It is not necessary to remove earlier TeX distributions before installing MacTeX, because the distribution will be installed in a separate location /usr/local/texlive/2025. 
+<!--Your earlier distribution will remain and can be used in case you run into difficulties with the 2025 version. It will be easy to eventually remove that earlier distribution. For instance, suppose you still have the distribution released in 2021. To remove it, just drag the folder /usr/local/texlive/2021 to the trash.-->
+
+<BR>
+<BR>
+After downloading, move the file MacTeX.pkg to the desktop or another convenient spot,
+and double click it to install.  Follow the straightforward instructions. Installation on a recent Macintosh
+takes about ten minutes.
+The installer  presents a Welcome page, a ReadMe page,
+a Software License page, and a Final Page. Clicking the "Install" button on this Final page will start the actual installation. The final page also has a ''Customize" button, which leads to a panel allowing users to decide which pieces to install: Ghostscript, Ghostscript-Extras , GUI Applications, and TeX Live itself.  Most users will use the standard installation and ignore "Customize". Users who use MacPorts or HomeBrew may prefer to use the Ghostscript provided by these projects and should use "Customize" to disable Ghostscript installation.
+Near the end of installation, there will be a a pause when nothing seems to happen. During this pause, TeX Live creates format files for the typesetting engines.
+<BR>
+<BR>
+At the end of installation, the installer will report "Success." But sometimes, the installer puts up a dialog saying "Verifying..." and then the install hangs. In all cases known to us, rebooting the Macintosh fixes this problem. After the reboot, install again.
+<BR>
+<BR>
+ When installation is complete, go to /Applications/TeX and read the document
+READ ME FIRST installed there, which explains how to find and use LaTeX. A copy of this document is available
+<a href="./READ_ME_FIRST.pdf"><b>here</b></a>.
+ 
+If other problems are reported during installation, skip to the section "Installation Errors" below.
+<BR>
+<BR>
+<DIV ALIGN='center'>
+<FONT SIZE="+2"><B>Miscellaneous Details</B></FONT>
+</DIV>
+<BR>
+
+MacTeX writes a symbolic link /Library/TeX/texbin which indirectly points to the TeX Live binary directory. Configure your GUI programs 
+to use this link. The GUI programs we supply will automatically configure themselves. 
+<BR>
+<BR>
+MacTeX installs TeX Live, the actual TeX distribution, in /usr/local/texlive/2025. This location is often hidden in the Finder. Typical users access TeX using a "front end", a program providing an editor to enter TeX source and a preview window to view the typeset output. MacTeX installs the front end TeXShop in /Applications/TeX and most people will access TeX using that front end or a similar one. <BR>
+<BR>
+MacTeX does not overwrite the TeX distribution from the previous year. Users who run into trouble can switch to the previous distribution until the new distribution is fixed. To switch, use TeX Live Utility which is in /Applications/TeX. Select the Configure menu item "Change Default TeX Live Version." <BR>
+<BR>
+MacTeX completely configures TeX, so after installation
+it is ready to use. Go to "/Applications/TeX/READ ME FIRST.pdf" and read this short document to get started.
+
+<BR>
+</div>
+<BR>
+<DIV ALIGN='center'>
+<FONT SIZE="+2"><B>What Is Installed</B></FONT>
+<BR>
+</DIV>
+<BR>
+
+MacTeX installs TeX Live, which contains TeX, LaTeX, AMS-TeX, and virtually every TeX-related style file and font. 
+TeX Live is maintained by TeX User Groups across the world.
+TeX Live is compiled from the same sources for all platforms: Macintosh, Windows, Linux, Unix.
+<BR>
+<BR>
+MacTeX also installs the GUI programs
+TeXShop, LaTeXiT, TeX Live Utility, and BibDesk.
+<BR>
+<BR>
+MacTeX installs Ghostscript, an open source version of Postscript. An optional package, Ghostscript-Extras, installs libgs, the dynamical library for Ghostscript, and mutool, an extra tool.  The programs in Ghostscript-Extras are used by only one program in TeX Live, dvisvgm. So they are not installed by default, but can be obtained using the "custom install" option in MacTeX.
+
+<p> X11 is an open source windowing system used by Linux systems. Most Macintosh users can ignore it.
+An open source version of X11 called XQuartz is available for the Macintosh. It can be found 
+<a href="https://www.xquartz.org"><b>here</b></a>.  If you use X11, you should update to the latest version of XQuartz, 2.8.5.
+  The TeX Live programs xdvi, pdfopen, and pdfclose require X11. Ghostscript  comes with two binaries, gs-X11 and gs-noX11, where gs-X11 has support for X11 and gs-noX11 does not. When Ghostscript is first installed, a symbolic link named gs is created in /usr/local/bin. If X11 is present, gs points to gs-X11; otherwise it points to gs-noX11.  
+
+</div>
+<BR>
+<DIV ALIGN='center'>
+<FONT SIZE="+2"><B>Installation Errors</B></FONT>
+<BR>
+</DIV>
+<BR>
+Sometimes at the end of installation, the installer will report  
+"The Installer encountered an error that caused the installation to fail. Contact the software manufacturer for assistance."
+In almost all cases, this error is caused by a faulty download. There is an easy way to check this. Go to /Applications/Utilities and run Terminal. Type
+<dd>
+<dl>     md5
+</dd>
+and a space. Then drag the install package icon "MacTeX.pkg" and drop it on the Terminal window.
+Push RETURN. Terminal will print a message and then a long item with letters and numbers.
+Compare this number to the MD5 sum at the top of this page just under the MacTeX.pkg link.
+If the two numbers are different, your download was defective and you <em>must</em> download again.
+Third party browsers can be used to download, and work well. If such a browser consistently
+gives an error, we recommend trying Safari for the new download.
+
+
+<p>
+If you are having trouble downloading MacTeX, note that the download link
+ points to a "multiplexer" site which parcels out requests to various up-to-date CTAN mirrors. Occasionally users have trouble getting the package from this multiplexer. In that case, choose a specific mirror on this <a href="./mirrorpage.html"><b>mirror page</b>.</a>
+<BR>
+<BR>
+
+<!--
+<p>
+If you are still unable to download MacTeX-2025 after trying several specific mirrors, and your md5 sum is always incorrect, there is almost nothing we can do to help. The TeX User Group does not run the distribution servers; they are maintained by an entirely separate organization called CTAN. Complaining to us that your download always fails is a waste of time.
+<BR>
+<BR>
+-->
+MacTeX is a very large package. If your network is noisy, you might want to try downloading
+and installing BasicTeX. See <a href="./morepackages.html"><b>Smaller Download</b></a>.
+BasicTeX is very much smaller, and yet has most files, fonts, and programs to process TeX,
+so this is a rapid way to get a working TeX. BasicTeX need not be uninstalled before
+installing MacTeX, so once you convince yourself that our packages work, you can return to the
+main task of installing MacTeX. TUG strongly recommends the full MacTeX for most users, including
+beginners, 
+
+<!--
+<BR>
+<BR>
+So far, we've given alternatives for bad downloads. But if your download has the correct md5
+sum, and you still get a message that installation failed, it is time to click "MacTeX Installer Support" at the bottom of this page and ask for help.
+-->
+
+</div>
+<BR>
+<BR>
+<DIV ALIGN='center'>
+<FONT SIZE="+2"><B>Installation Error: 10 Minute Limit</B></FONT>
+<BR>
+</DIV>
+<BR>
+During pretesting of MacTeX-2025, a new installation error was reported. The package was revised
+to eliminate this error, but it might recur in unusual circumstances. It is easily fixed.
+
+<p> The installer first writes a large number of packages to /usr/local/texlive/2025. Then it runs a postinstall script which configures the distribution. The installer reports the moment when the script first starts running. If the script run takes longer than ten minutes, Apple aborts the installation and reports an error. 
+
+<p> The installer's "Window" menu offers to show a Log of the installation. If your computer is slow,
+it is not a good idea to show this window during installation, because writing the items takes up part of those allotted ten minutes. But after installation ends, the Log window can be opened.
+The 10-minute error would be reported in a line near the end of the log file, which reads
+<pre>
+   Terminating PKInstall Task. Task has exceeded its 600 seconds of runtime.
+</pre>
+
+ <p> By the time this error occurs, the installation has been completely set up and some final
+ scripts are running. You can finish these final tasks yourself.
+ Find the "Terminal" program in /Applications/Utilities and run it. Enter each line below in Terminal,
+ pushing RETURN after the line is complete. Since Unix is picky about syntax, it is easiest to
+ copy the lines from the display below. When you are done, MacTeX-2025 is fully configured and ready to use.
+ <pre>
+   sudo /usr/local/texlive/2025/bin/universal-darwin/mktexlsr
+   sudo /usr/local/texlive/2025/bin/universal-darwin/updmap-sys
+   sudo /usr/local/texlive/2025/bin/universal-darwin/fmtutil-sys --missing
+   sudo /usr/local/texlive/2025/bin/universal-darwin/mktexlsr 
+ </pre>
+ <p> In one known case, a machine was so slow that even the setup material was not finished
+ after ten minutes, so the above solution failed. Users who run into that case should
+ download and run <A HREF="./postinstall2025.sh"><b>postinstall2025.sh</b></A>.
+  
+ 
+<DIV ALIGN='center'>
+<FONT SIZE="+2"><B>Updating Various Pieces after Installation</B></FONT>
+<BR>
+</DIV>
+<BR>
+
+
+<TABLE ALIGN='LEFT'  BORDER='0'  CELLSPACING=0 >
+TeX Live 2025 and the various GUI programs installed by MacTeX are up to date as of March, 2025. But various pieces may have been updated since then. Each of our GUI programs has a menu item called "Check for Updates." Select this item to update the program to the current version. The TeX Live command line files are updated daily. To install these updates, use TeX Live Utility in /Applications/TeX.
+
+ 
+<!--
+<BR>
+<BR>
+</div>
+<BR>
+<DIV ALIGN='center'>
+<FONT SIZE="+2"><B>TeX Live DVD</B></FONT>
+<BR>
+</DIV>
+<BR>
+
+
+<TR><TD ALIGN='LEFT'>
+Free copies of TeX Live are available over the internet, but this can be problematic if your
+internet connection is unstable. Members of the TeX User Group (TUG) receive a free DVD containing the full TeX Live for all common platforms. TUG also sells this DVD to others. For details, click on the TUG icon at top right.
+-->
+
+<BR>
+<BR>
+
+
+</div></div>
+
+
+<BR>
+<hr>
+<table valign='bottom' align="left">
+<tr><td valign='bottom'>
+<br>
+<font COLOR="#887700">
+<i><b>Happy TeXing on macOS </i>!</b> 
+</font>
+</td></tr></table>
+
+<table valign='bottom' align="right">
+<tr><td valign='bottom'>
+<br>
+<a href='./donate.html'>
+<b><i>Donate</i></b></a> &nbsp; &nbsp;
+</td></tr></table>
+<br>
+<br>
+
+<br clear='all'>
+
+</body></html>
+
+
+
