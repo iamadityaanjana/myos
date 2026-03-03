@@ -4,6 +4,8 @@ global _start
 extern kernel_main
 
 _start:
+    cld
+
     ; Set up stack at 0x90000
     mov esp, 0x90000
 

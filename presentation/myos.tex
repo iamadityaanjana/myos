@@ -357,7 +357,9 @@ myos/
 │   └── bootloader.asm
 ├── kernel/
 │   ├── kernel_entry.asm
-│   └── kernel.c
+│   ├── kernel.c
+│   ├── screen.c
+│   └── screen.h
 ├── linker.ld
 └── Makefile
 \end{verbatim}
@@ -810,105 +812,6 @@ SECTIONS
   \end{exampleblock}
 \end{frame}
 
-\begin{frame}[fragile]{Kernel --- VGA Constants and Clear Screen}
-  \begin{lstlisting}[style=clang]
-#define VGA_WIDTH   80
-#define VGA_HEIGHT  25
-#define VGA_MEMORY  ((unsigned short *)0xB8000)
-
-#define COLOR_WHITE_ON_BLACK  0x0F
-#define COLOR_GREEN_ON_BLACK  0x0A
-#define COLOR_CYAN_ON_BLACK   0x0B
-
-static int cursor_col = 0;
-static int cursor_row = 0;
-
-void clear_screen(void) {
-    // blank = colour byte in high byte, space in low byte
-    unsigned short blank = (COLOR_WHITE_ON_BLACK << 8) | ' ';
-    for (int i = 0; i < VGA_WIDTH * VGA_HEIGHT; i++)
-        VGA_MEMORY[i] = blank;
-    cursor_col = 0;
-    cursor_row = 0;
-}
-  \end{lstlisting}
-\end{frame}
-
-\begin{frame}[fragile]{Kernel --- Printing a Character}
-  \begin{lstlisting}[style=clang]
-void putchar_color(char c, unsigned char color) {
-    if (c == '\n') {           // newline: move to next row
-        cursor_col = 0;
-        cursor_row++;
-        return;
-    }
-    if (cursor_row >= VGA_HEIGHT) {  // scroll if past last row
-        for (int row = 1; row < VGA_HEIGHT; row++)
-            for (int col = 0; col < VGA_WIDTH; col++)
-                VGA_MEMORY[(row-1)*VGA_WIDTH + col] =   // copy row up
-                    VGA_MEMORY[row*VGA_WIDTH + col];
-        // clear last line
-        unsigned short blank = (color << 8) | ' ';
-        for (int col = 0; col < VGA_WIDTH; col++)
-            VGA_MEMORY[(VGA_HEIGHT-1)*VGA_WIDTH + col] = blank;
-        cursor_row = VGA_HEIGHT - 1;
-    }
-    int index = cursor_row * VGA_WIDTH + cursor_col;
-    VGA_MEMORY[index] = ((unsigned short)color << 8) | (unsigned char)c;
-    cursor_col++;
-    if (cursor_col >= VGA_WIDTH) { cursor_col = 0; cursor_row++; }
-}
-  \end{lstlisting}
-\end{frame}
-
-\begin{frame}[fragile]{Kernel --- Print Helpers and \texttt{kernel\_main}}
-  \begin{lstlisting}[style=clang]
-void print_color(const char *str, unsigned char color) {
-    for (int i = 0; str[i] != '\0'; i++)
-        putchar_color(str[i], color);
-}
-
-void print(const char *str)   { print_color(str, COLOR_WHITE_ON_BLACK); }
-void println(const char *str) { print(str); putchar_color('\n', COLOR_WHITE_ON_BLACK); }
-
-void kernel_main(void) {
-    clear_screen();
-    print_color("================================\n", COLOR_CYAN_ON_BLACK);
-    print_color("         MyOS v0.1              \n", COLOR_GREEN_ON_BLACK);
-    print_color("================================\n", COLOR_CYAN_ON_BLACK);
-    println("");
-    println("Kernel loaded successfully.");
-    println("Running in 32-bit Protected Mode.");
-    print_color("Ready.\n",                          COLOR_GREEN_ON_BLACK);
-
-    // Halt safely: no IDT, so we MUST disable interrupts
-    __asm__ volatile(
-        "cli\n"
-        ".Lhalt:\n"
-        "hlt\n"
-        "jmp .Lhalt\n"
-    );
-}
-  \end{lstlisting}
-\end{frame}
-
-\begin{frame}[fragile]{Inline Assembly in C --- Explained}
-  \begin{lstlisting}[style=clang]
-__asm__ volatile(
-    "cli\n"       // disable interrupts
-    ".Lhalt:\n"   // label (local: starts with . to avoid symbol clash)
-    "hlt\n"       // halt CPU (enters low-power state, waits for interrupt)
-    "jmp .Lhalt\n"// if NMI wakes CPU, halt again immediately
-);
-  \end{lstlisting}
-  \vspace{6pt}
-  \concept{\texttt{\_\_asm\_\_ volatile(...)}}{
-    GCC's way to embed raw assembly inside C code. \texttt{volatile} tells the compiler \textbf{never optimise this away} -- it must stay in the output, in order.
-  }
-  \vspace{4pt}
-  \warn{A plain \texttt{for(;;)\{\}} spin-loop does NOT disable interrupts. Any interrupt with no IDT causes a triple fault and resets your machine. Always use \texttt{cli + hlt}.}
-\end{frame}
-
 %% ════════════════════════════════════════════════════════════════════════════
 \section{The Makefile and Build System}
 %% ════════════════════════════════════════════════════════════════════════════
@@ -931,7 +834,10 @@ $(BUILD)/kernel_entry.o: kernel/kernel_entry.asm
 $(BUILD)/kernel.o: kernel/kernel.c
     $(CC) $(CFLAGS) -c $< -o $@    # compile only, no link
 
-$(BUILD)/kernel.bin: kernel_entry.o kernel.o
+$(BUILD)/screen.o: kernel/screen.c
+  $(CC) $(CFLAGS) -c $< -o $@    # terminal driver object
+
+$(BUILD)/kernel.bin: $(BUILD)/kernel_entry.o $(BUILD)/kernel.o $(BUILD)/screen.o
     $(LD) $(LDFLAGS) $^ --oformat binary -o $@
   \end{lstlisting}
 \end{frame}
@@ -1107,12 +1013,12 @@ _start:
       \item Safe halt
     \end{itemize}
     \vspace{8pt}
-    \textbf{Kernel (\texttt{kernel/kernel.c})}
+    \textbf{Kernel module (\texttt{kernel/screen.c + screen.h})}
     \begin{itemize}
-      \item VGA text output
-      \item Colour support
-      \item Scrolling
-      \item Clear screen
+      \item Terminal API: \texttt{print()}, \texttt{put\_char()}, \texttt{set\_color()}
+      \item Cursor tracking + newline handling
+      \item Automatic scrolling at row overflow
+      \item Screen clear with current colour attribute
     \end{itemize}
   \end{columns}
 \end{frame}
@@ -1197,9 +1103,9 @@ _start:
       \node[font=\ttfamily\footnotesize,color=cyan]    at(3.5,3.0){================================};
       \node[font=\ttfamily\footnotesize,color=green]   at(3.5,2.5){\quad\quad\quad MyOS v0.1\quad\quad\quad\quad\quad};
       \node[font=\ttfamily\footnotesize,color=cyan]    at(3.5,2.0){================================};
-      \node[font=\ttfamily\footnotesize,color=white]   at(3.5,1.5){Kernel loaded successfully.};
-      \node[font=\ttfamily\footnotesize,color=white]   at(3.5,1.0){Running in 32-bit Protected Mode.};
-      \node[font=\ttfamily\footnotesize,color=green]   at(3.5,0.5){Ready.};
+      \node[font=\ttfamily\footnotesize,color=white]   at(3.5,1.5){Screen driver initialized.};
+      \node[font=\ttfamily\footnotesize,color=white]   at(3.5,1.0){Scrolling works. New lines work.};
+      \node[font=\ttfamily\footnotesize,color=green]   at(3.5,0.5){VGA terminal module online.};
     \end{tikzpicture}\\[0.8cm]
     {\large From zero to OS in one session.}
   \end{center}

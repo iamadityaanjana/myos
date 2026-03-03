@@ -1,0 +1,218 @@
+\documentclass[aspectratio=169]{beamer}
+
+\usetheme{Madrid}
+\usecolortheme{seahorse}
+\usefonttheme{professionalfonts}
+
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{tikz}
+\usepackage{booktabs}
+\usepackage{hyperref}
+\usepackage{textcomp}
+\usepackage{microtype}
+
+\definecolor{codebg}{HTML}{1E1E2E}
+\definecolor{codegreen}{HTML}{A6E3A1}
+\definecolor{codeblue}{HTML}{89DCEB}
+\definecolor{codeyellow}{HTML}{F9E2AF}
+\definecolor{codegray}{HTML}{6C7086}
+\definecolor{codepurple}{HTML}{CBA6F7}
+\definecolor{codeorange}{HTML}{FAB387}
+\definecolor{codewhite}{HTML}{CDD6F4}
+\definecolor{alertred}{HTML}{F38BA8}
+
+\lstdefinestyle{clang}{
+  backgroundcolor=\color{codebg},
+  basicstyle=\ttfamily\footnotesize\color{codewhite},
+  keywordstyle=\color{codepurple}\bfseries,
+  commentstyle=\color{codegray}\itshape,
+  stringstyle=\color{codegreen},
+  numberstyle=\tiny\color{codegray},
+  numbers=left, numbersep=6pt,
+  breaklines=true, frame=single,
+  rulecolor=\color{codeblue},
+  language=C,
+  tabsize=4
+}
+
+\title[MyOS Chapter 3]{\textbf{MyOS Chapter 3: Full Keyboard I/O + Scrollback}}
+\subtitle{From basic IRQ keys to interactive terminal navigation}
+\author{MyOS Project}
+\date{March 2026}
+\institute{Interrupt-driven input subsystem}
+
+\newcommand{\concept}[2]{%
+  \begin{block}{#1}\smallskip #2\smallskip\end{block}\vspace{5pt}}
+
+\newcommand{\warn}[1]{%
+  \begin{alertblock}{Important}\smallskip #1\smallskip\end{alertblock}\vspace{5pt}}
+
+\begin{document}
+
+\begin{frame}
+  \titlepage
+\end{frame}
+
+\begin{frame}{Why scrolling failed before}
+  \begin{itemize}
+    \item Previous terminal driver stored only visible 80x25 VGA cells
+    \item Once line 26 arrived, line 1 was physically overwritten
+    \item Arrow keys had no viewport concept to move through old content
+  \end{itemize}
+  \vspace{6pt}
+  \concept{Root cause}{
+    No persistent text history buffer existed in RAM. VGA memory was the only source of truth.
+  }
+\end{frame}
+
+\begin{frame}[fragile]{Scrollback Architecture in \texttt{screen.c}}
+  \begin{lstlisting}[style=clang]
+#define SCROLLBACK_LINES 512
+
+static uint16_t text_buffer[SCROLLBACK_LINES][VGA_WIDTH];
+static int cursor_row = 0;
+static int cursor_col = 0;
+static int total_lines = 1;
+static int view_top_line = 0;
+  \end{lstlisting}
+  \textbf{Logic behind these lines:}
+  \begin{itemize}
+    \item \texttt{text\_buffer} keeps 512 rows of terminal history in RAM
+    \item \texttt{cursor\_row/col} track absolute write position in history
+    \item \texttt{view\_top\_line} tracks which history row is shown at VGA row 0
+    \item VGA now becomes a rendered viewport, not the primary storage
+  \end{itemize}
+\end{frame}
+
+\begin{frame}[fragile]{Render Pipeline: History \textrightarrow VGA}
+  \begin{lstlisting}[style=clang]
+static void render_view() {
+    for (int row = 0; row < VGA_HEIGHT; row++) {
+        int source_row = view_top_line + row;
+        for (int col = 0; col < VGA_WIDTH; col++) {
+            if (source_row < total_lines)
+                video_memory[row * VGA_WIDTH + col] =
+                    text_buffer[source_row][col];
+            else
+                video_memory[row * VGA_WIDTH + col] = make_cell(' ');
+        }
+    }
+}
+  \end{lstlisting}
+  \concept{Rendering model}{
+    Every key/output updates history first, then \texttt{render\_view()} redraws the 25-line window.
+  }
+\end{frame}
+
+\begin{frame}[fragile]{Viewport Controls}
+  \begin{lstlisting}[style=clang]
+void scroll_view_up(int lines) {
+    if (view_top_line >= lines) view_top_line -= lines;
+    else view_top_line = 0;
+    render_view();
+    update_cursor();
+}
+
+void scroll_view_down(int lines) {
+    int max_top = total_lines > VGA_HEIGHT ? total_lines - VGA_HEIGHT : 0;
+    view_top_line += lines;
+    if (view_top_line > max_top) view_top_line = max_top;
+    render_view();
+    update_cursor();
+}
+  \end{lstlisting}
+  \textbf{Result:} Up/Down keys can navigate historical output safely.
+\end{frame}
+
+\begin{frame}[fragile]{Keyboard IRQ: Full Scancode Handling}
+  \begin{lstlisting}[style=clang]
+if (scancode == 0xE0) { extended_prefix = 1; ... }
+
+if (extended_prefix) {
+    extended_prefix = 0;
+    if (scancode == 0x48) scroll_view_up(1);   // Arrow Up
+    else if (scancode == 0x50) scroll_view_down(1); // Arrow Down
+    ...
+}
+
+if (scancode == 0x2A || scancode == 0x36) shift_pressed = 1;
+if (scancode == 0xAA || scancode == 0xB6) shift_pressed = 0;
+if (scancode == 0x3A) caps_lock = !caps_lock;
+  \end{lstlisting}
+  \begin{itemize}
+    \item Handles Shift make/break events, Caps lock toggle
+    \item Handles extended scancode prefix for navigation keys
+    \item Filters key-release events before ASCII translation
+  \end{itemize}
+\end{frame}
+
+\begin{frame}[fragile]{Keymap Translation (Normal + Shifted)}
+  \begin{lstlisting}[style=clang]
+static const char keymap[128] = { ... '1','2','3',...,'a','b',...,'/' ... };
+static const char keymap_shift[128] = { ... '!','@','#',...,'A','B',...,'?' ... };
+
+if (is_alpha(normal)) {
+    c = (shift_pressed ^ caps_lock) ? shifted : normal;
+} else {
+    c = shift_pressed ? shifted : normal;
+}
+  \end{lstlisting}
+  \concept{Why XOR for letters?}{
+    Shift and Caps both invert case. Pressing both returns to lowercase.
+  }
+\end{frame}
+
+\begin{frame}[fragile]{Expanded low-level I/O API}
+  \begin{lstlisting}[style=clang]
+uint8_t  inb(uint16_t port);   void outb(uint16_t port, uint8_t value);
+uint16_t inw(uint16_t port);   void outw(uint16_t port, uint16_t value);
+uint32_t inl(uint16_t port);   void outl(uint16_t port, uint32_t value);
+void io_wait();
+  \end{lstlisting}
+  \textbf{Why this matters:}
+  \begin{itemize}
+    \item Keeps kernel hardware access centralized and reusable
+    \item Prepares for timer/PIT, ATA, PCI, and future drivers
+  \end{itemize}
+\end{frame}
+
+\begin{frame}[fragile]{\texttt{print\_int()} reliability fix}
+  \begin{lstlisting}[style=clang]
+if (n < 0) {
+    put_char('-');
+    value = (unsigned int)(-(n + 1)) + 1;
+} else {
+    value = (unsigned int)n;
+}
+  \end{lstlisting}
+  \concept{Why this change}{
+    Avoids overflow for INT\_MIN while still printing signed integers correctly.
+  }
+\end{frame}
+
+\begin{frame}{Testing checklist in QEMU}
+  \begin{enumerate}
+    \item Type letters/digits/symbols (verify full keymap)
+    \item Press Shift + digits (expect \texttt{!@\#...})
+    \item Toggle Caps Lock and verify letter case logic
+    \item Use Backspace, Tab, Enter
+    \item Generate many lines, then Arrow Up/Down for scrollback
+  \end{enumerate}
+  \warn{If viewport is at history top and new output arrives, terminal follows bottom only when already at bottom before writing.}
+\end{frame}
+
+\begin{frame}{What this chapter achieved}
+  \begin{itemize}
+    \item Full interrupt-driven keyboard input translation
+    \item Terminal history buffer with viewport navigation
+    \item Cleaner low-level I/O surface for future device drivers
+    \item More robust integer printing path for diagnostics
+  \end{itemize}
+  \vspace{8pt}
+  \begin{center}
+    \Large \textbf{MyOS is now an interactive, navigable console}
+  \end{center}
+\end{frame}
+
+\end{document}
