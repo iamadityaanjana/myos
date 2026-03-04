@@ -3,6 +3,7 @@
 #include "idt.h"
 #include "printk.h"
 #include "keyboard.h"
+#include "shell.h"
 
 void kernel_main() {
     clear_screen();
@@ -25,6 +26,7 @@ void kernel_main() {
     print("Enabling interrupts...\n");
     __asm__ volatile("sti");
     print("Interrupts enabled. Keyboard ready.\n");
+    shell_init();
 
     // print("Keyboard IRQ active (full keymap enabled).\n");
     // print("Try letters, digits, symbols, shift, caps, backspace.\n");

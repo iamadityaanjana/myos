@@ -50,7 +50,7 @@
 }
 
 \title[MyOS Chapter 4]{\textbf{MyOS Chapter 4: Permanent Interrupt Architecture}}
-\subtitle{From temporary guards to full ISR/IRQ framework}
+\subtitle{Triple-fault postmortem, permanent fixes, and keyword-by-keyword explanation}
 \author{MyOS Project}
 \date{March 2026}
 \institute{x86 Protected Mode Kernel Engineering}
@@ -67,43 +67,106 @@
   \titlepage
 \end{frame}
 
-\begin{frame}{Why the temporary fix was not enough}
+\begin{frame}{What problem we observed}
   \begin{itemize}
-    \item Masking IRQ lines reduces crashes but does not define real exception/IRQ flow
-    \item Missing structured stubs can corrupt stack on different vectors
-    \item No central dispatcher means duplicated or inconsistent interrupt logic
+    \item Typing one key caused screen flicker/reset loops (5--6 times)
+    \item System looked like it returned to BIOS/QEMU boot repeatedly
+    \item Behavior matched a \textbf{triple fault} pattern, not a simple keyboard bug
   \end{itemize}
   \vspace{6pt}
-  \concept{Permanent goal}{
-    Build a full path for vectors 0--47 with shared ABI, C-level dispatch, and deterministic PIC EOI behavior.
+  \warn{Temporary guards reduced symptoms, but did not remove the root cause.}
+\end{frame}
+
+\begin{frame}{Crash chain (from QEMU trace)}
+  \begin{itemize}
+    \item Hardware interrupt arrived on vector \texttt{0x21} (IRQ1 keyboard)
+    \item CPU raised \texttt{\#GP} with error code \texttt{0x0008}
+    \item Then \texttt{\#DF} occurred, then immediate \texttt{Triple fault}
+  \end{itemize}
+  \concept{Interpretation}{
+    \texttt{err=0x0008} points to selector index 1 (kernel code segment, \texttt{CS=0x08}).
+    This strongly indicates descriptor/GDT state failure while handling interrupts.
   }
 \end{frame}
 
-\begin{frame}{Final Architecture}
+\begin{frame}{Keyword slide: exception terms}
+  \small
+  \begin{tabular}{@{}p{2.5cm}p{9.5cm}@{}}
+    \toprule
+    \textbf{Keyword} & \textbf{Meaning} \\
+    \midrule
+    \texttt{IRQ1} & Keyboard hardware interrupt line on the PIC. \\
+    \texttt{Vector 0x21} & Interrupt number after PIC remap (IRQ1 \textrightarrow 33 decimal). \\
+    \texttt{\#GP} & General Protection Fault: protection/descriptor violation. \\
+    \texttt{\#DF} & Double Fault: second fault while delivering first fault. \\
+    \texttt{Triple fault} & Fault during double-fault handling; CPU resets. \\
+    \texttt{err=0x0008} & Fault references selector 0x08 (kernel code segment). \\
+    \bottomrule
+  \end{tabular}
+\end{frame}
+
+\begin{frame}{Permanent fix set (high level)}
   \begin{center}
   \begin{tikzpicture}[
       box/.style={rectangle,draw,rounded corners=4pt,
                   minimum width=2.9cm,minimum height=0.75cm,
                   align=center,font=\small},
       arr/.style={->,thick,>=stealth}]
-    \node[box,fill=codeyellow!40] (irq) at (0,0) {IRQ / Exception};
-    \node[box,fill=codeblue!30]   (stub) at (3.5,0) {ASM Stub\\vector-specific};
-    \node[box,fill=codegreen!30]  (common) at (7.0,0) {Common Stub\\push regs};
-    \node[box,fill=codepurple!30] (cdisp) at (10.5,0) {C Dispatcher\\isr/irq};
+    \node[box,fill=codeyellow!40] (gdt) at (0,0) {Kernel-owned GDT};
+    \node[box,fill=codeblue!30]   (idt) at (3.5,0) {IDT + PIC remap};
+    \node[box,fill=codegreen!30]  (stub) at (7.0,0) {ISR/IRQ common stubs};
+    \node[box,fill=codepurple!30] (irq) at (10.5,0) {C IRQ dispatcher};
 
-    \node[box,fill=codeorange!35] (kbd) at (7.0,-1.6) {Keyboard Driver};
-    \node[box,fill=codewhite!80]  (eoi) at (10.5,-1.6) {PIC EOI + Return};
+    \node[box,fill=codeorange!35] (queue) at (7.0,-1.6) {Scancode queue};
+    \node[box,fill=codewhite!80]  (main) at (10.5,-1.6) {Main loop processing};
 
-    \draw[arr] (irq) -- (stub);
-    \draw[arr] (stub) -- (common);
-    \draw[arr] (common) -- (cdisp);
-    \draw[arr] (cdisp) -- (kbd);
-    \draw[arr] (cdisp) -- (eoi);
+    \draw[arr] (gdt) -- (idt);
+    \draw[arr] (idt) -- (stub);
+    \draw[arr] (stub) -- (irq);
+    \draw[arr] (irq) -- (queue);
+    \draw[arr] (queue) -- (main);
   \end{tikzpicture}
   \end{center}
 \end{frame}
 
-\begin{frame}[fragile]{Assembly Stub Generation Strategy}
+\begin{frame}[fragile]{Fix 1: Kernel-owned GDT}
+  \begin{lstlisting}[style=clang]
+void gdt_init() {
+    gdt_ptr.limit = sizeof(gdt) - 1;
+    gdt_ptr.base  = (uint32_t)&gdt;
+
+    gdt_set_gate(0, 0, 0,          0x00, 0x00);
+    gdt_set_gate(1, 0, 0xFFFFFFFF, 0x9A, 0xCF); // code
+    gdt_set_gate(2, 0, 0xFFFFFFFF, 0x92, 0xCF); // data
+
+    gdt_flush((uint32_t)&gdt_ptr);
+}
+  \end{lstlisting}
+  \textbf{Why this solved a key risk:}
+  \begin{itemize}
+    \item Stops relying on bootloader-era descriptor state at runtime
+    \item Reloads \texttt{CS/DS/ES/FS/GS/SS} from a stable kernel GDT
+  \end{itemize}
+\end{frame}
+
+\begin{frame}[fragile]{Keyword slide: GDT terms}
+  \small
+  \begin{tabular}{@{}p{2.5cm}p{9.5cm}@{}}
+    \toprule
+    \textbf{Keyword} & \textbf{Meaning} \\
+    \midrule
+    \texttt{GDT} & Global Descriptor Table: defines segment descriptors. \\
+    \texttt{LGDT} & CPU instruction that loads the GDT pointer register. \\
+    \texttt{Selector 0x08} & Entry 1 in GDT (kernel code segment). \\
+    \texttt{Selector 0x10} & Entry 2 in GDT (kernel data segment). \\
+    \texttt{0x9A} & Access byte for present, ring0, executable code segment. \\
+    \texttt{0x92} & Access byte for present, ring0, writable data segment. \\
+    \texttt{0xCF} & Granularity flags: 4KB granularity + 32-bit segment size. \\
+    \bottomrule
+  \end{tabular}
+\end{frame}
+
+\begin{frame}[fragile]{Fix 2: Stable ISR/IRQ stack contract}
   \begin{lstlisting}[style=asm]
 %macro ISR_NOERR 2
 %1:
@@ -125,11 +188,11 @@
     jmp irq_common_stub
 %endmacro
   \end{lstlisting}
-  \textbf{Line logic:}
+  \textbf{Meaning:}
   \begin{itemize}
-    \item Exceptions without CPU error code get synthetic \texttt{err\_code=0}
-    \item Exceptions with CPU error code preserve it and only push vector number
-    \item IRQ vectors always push synthetic error code + vector number
+    \item Every handler builds the same metadata shape: \texttt{int\_no + err\_code}
+    \item CPU error-code exceptions use \texttt{ISR\_ERR}
+    \item IRQs always synthesize \texttt{err\_code=0}
   \end{itemize}
 \end{frame}
 
@@ -155,8 +218,8 @@ irq_common_stub:
     add esp, 8
     iretd
   \end{lstlisting}
-  \concept{Why this is stable}{
-    Every vector follows one stack contract. C receives a single \texttt{registers\_t*} view of CPU state.
+  \concept{Why this matters}{
+    A unified ABI prevents per-vector stack mismatches and keeps return via \texttt{iretd} deterministic.
   }
 \end{frame}
 
@@ -171,31 +234,42 @@ typedef struct {
   \end{lstlisting}
   \textbf{Logic behind order:}
   \begin{itemize}
-    \item Matches \texttt{pusha} register push order exactly
-    \item Then matches the stub-pushed metadata: \texttt{int\_no}, \texttt{err\_code}
-    \item Then CPU-saved return frame: \texttt{eip/cs/eflags}
+    \item \texttt{pusha} register order first
+    \item Stub metadata next: \texttt{int\_no}, \texttt{err\_code}
+    \item CPU return frame last: \texttt{eip/cs/eflags}
   \end{itemize}
 \end{frame}
 
-\begin{frame}[fragile]{Exception Path: \texttt{isr\_handler()}}
+\begin{frame}[fragile]{Fix 3: Safer exception screen path}
   \begin{lstlisting}[style=clang]
 void isr_handler(registers_t* regs) {
-    set_color(0x0C);
-    print("\n\n[EXCEPTION] ");
-    print(exception_messages[regs->int_no]);
-    print(" (#");
-    print_int((int)regs->int_no);
-    print(") err=");
-    print_int((int)regs->err_code);
-    print("\nSystem halted.\n");
-    cli; hlt-loop;
+    volatile uint16_t* vga = (volatile uint16_t*)0xB8000;
+    uint8_t color = 0x4F;
+    ...
+    vga[0] = (color << 8) | 'E';
+    vga[1] = (color << 8) | 'X';
+    vga[2] = (color << 8) | 'C';
+    ...
+    cli;
+    while (1) { hlt; }
 }
   \end{lstlisting}
-  \warn{Critical design choice: halt on exception instead of silent reboot. This makes faults debuggable.}
+  \warn{Critical point: on fatal exception, show minimal VGA marker and halt. No recursive high-level printing.}
 \end{frame}
 
-\begin{frame}[fragile]{IRQ Path: \texttt{irq\_handler()}}
+\begin{frame}[fragile]{Fix 4: Deferred keyboard processing}
   \begin{lstlisting}[style=clang]
+void keyboard_irq_handler() {
+    uint8_t sc = inb(0x60);
+    queue_push(sc);
+}
+
+void keyboard_process_pending() {
+    while (queue_not_empty()) {
+        process_scancode(queue_pop());
+    }
+}
+
 void irq_handler(registers_t* regs) {
     if (regs->int_no == 33) {
         keyboard_irq_handler();
@@ -207,12 +281,29 @@ void irq_handler(registers_t* regs) {
     outb(0x20, 0x20);
 }
   \end{lstlisting}
-  \textbf{Line logic:}
+  \textbf{Why this is safer:}
   \begin{itemize}
-    \item Dispatches IRQ1 to keyboard only
-    \item Sends EOI to slave PIC for IRQ8--15 first
-    \item Always sends EOI to master PIC
+    \item IRQ context does minimal work (read port, queue data, EOI)
+    \item Full scancode mapping and screen writes happen in main loop
+    \item Reduces re-entrancy and stack pressure during interrupts
   \end{itemize}
+\end{frame}
+
+\begin{frame}[fragile]{Keyword slide: IRQ path terms}
+  \small
+  \begin{tabular}{@{}p{2.5cm}p{9.5cm}@{}}
+    \toprule
+    \textbf{Keyword} & \textbf{Meaning} \\
+    \midrule
+    \texttt{EOI} & End Of Interrupt command to PIC: allows next IRQ delivery. \\
+    \texttt{PIC} & Programmable Interrupt Controller (8259A master/slave). \\
+    \texttt{Remap} & Move IRQ vectors away from CPU exception range. \\
+    \texttt{Top-half} & Fast IRQ part (minimal, non-blocking work). \\
+    \texttt{Bottom-half} & Deferred processing outside IRQ context. \\
+    \texttt{Scancode} & Raw keyboard code read from port \texttt{0x60}. \\
+    \texttt{iretd} & Returns from interrupt restoring \texttt{EIP/CS/EFLAGS}. \\
+    \bottomrule
+  \end{tabular}
 \end{frame}
 
 \begin{frame}[fragile]{IDT Wiring: Full 0--47 Coverage}
@@ -245,34 +336,47 @@ outb(0xA1, 0xFF); io_wait();  // all slave IRQs masked
   \end{itemize}
 \end{frame}
 
-\begin{frame}{What changed in keyboard path}
+\begin{frame}{Debugging method that found the root cause}
   \begin{itemize}
-    \item Keyboard driver now exposes \texttt{keyboard\_irq\_handler()}
-    \item Driver no longer sends PIC EOI directly
-    \item EOI is centralized in \texttt{irq\_handler()} for correctness
-    \item Keeps full scancode map + Shift/Caps/Backspace + scroll-view arrows
+    \item Reproduced with scripted monitor input: \texttt{sendkey a}
+    \item Logged interrupt path with QEMU \texttt{-d int,in\_asm}
+    \item Mapped crash EIP to linked kernel symbol addresses
+    \item Found \texttt{\#GP err=0x0008} on IRQ1 delivery path
+  \end{itemize}
+  \concept{Lesson}{
+    In low-level kernels, deterministic reproduction + trace logs beat guess-based patching.
+  }
+\end{frame}
+
+\begin{frame}{Current behavior after fixes}
+  \begin{itemize}
+    \item IRQ1 arrives and returns without reset loop
+    \item VM survives automated key-injection tests
+    \item Keyboard path is architecturally cleaner (IRQ queue + main-loop decode)
+    \item Exception path has deterministic halt behavior
   \end{itemize}
 \end{frame}
 
-\begin{frame}{Verification checklist}
+\begin{frame}{Verification checklist (final)}
   \begin{enumerate}
     \item Boot and confirm no reboot flicker after \texttt{sti}
-    \item Press normal keys and symbols: all render correctly
+    \item Type normal keys continuously (no blink/reset)
+    \item Verify Shift/Caps/Backspace behavior
     \item Use arrow up/down for scrollback viewport
-    \item Trigger invalid operation intentionally in future tests and confirm exception screen (not reboot)
+    \item Trigger an intentional invalid opcode and verify \texttt{EXC xx} halt screen
   \end{enumerate}
 \end{frame}
 
 \begin{frame}{Outcome}
   \begin{itemize}
-    \item Kernel moved from temporary guards to true interrupt architecture
-    \item Full vector coverage for CPU exceptions and hardware IRQs
-    \item Stable ABI between assembly stubs and C handlers
-    \item Better debugging surface for all future kernel modules
+    \item Root cause addressed, not masked: descriptor-state stability + safer IRQ design
+    \item Full vector coverage for exceptions and hardware IRQs
+    \item Stable ABI between assembly stubs and C dispatchers
+    \item Strong platform for timer scheduling and next kernel subsystems
   \end{itemize}
   \vspace{8pt}
   \begin{center}
-    \Large \textbf{This is now real kernel interrupt engineering.}
+    \Large \textbf{Chapter 4 now documents the real failure and the real fix.}
   \end{center}
 \end{frame}
 

@@ -1,5 +1,6 @@
 #include "io.h"
 #include "screen.h"
+#include "shell.h"
 
 #define KBD_QUEUE_SIZE 64
 
@@ -50,12 +51,6 @@ static const char keymap_shift[128] = {
 
 static int is_alpha(char c) {
     return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z');
-}
-
-static void put_tab() {
-    for (int i = 0; i < 4; i++) {
-        put_char(' ');
-    }
 }
 
 static void process_scancode(uint8_t scancode) {
@@ -111,10 +106,8 @@ static void process_scancode(uint8_t scancode) {
         }
     }
 
-    if (c == '\t') {
-        put_tab();
-    } else if (c != 0) {
-        put_char(c);
+    if (c != 0) {
+        shell_input_char(c);
     }
 }
 

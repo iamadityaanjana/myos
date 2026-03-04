@@ -19,6 +19,7 @@ IDT_C    := kernel/idt.c
 ISR_C    := kernel/isr.c
 KBD_C    := kernel/keyboard.c
 PRINTK_C := kernel/printk.c
+SHELL_C  := kernel/shell.c
 KERNEL_A := kernel/kernel_entry.asm
 GDT_A    := kernel/gdt_flush.asm
 IDT_A    := kernel/idt_load.asm
@@ -84,8 +85,12 @@ $(BUILD)/keyboard.o: $(KBD_C) | $(BUILD)
 $(BUILD)/printk.o: $(PRINTK_C) | $(BUILD)
 	$(CC) $(CFLAGS) -c $< -o $@
 
+# ── shell object ─────────────────────────────────────────────
+$(BUILD)/shell.o: $(SHELL_C) | $(BUILD)
+	$(CC) $(CFLAGS) -c $< -o $@
+
 # ── Link kernel into flat binary ──────────────────────────────
-$(BUILD)/kernel.bin: $(BUILD)/kernel_entry.o $(BUILD)/gdt_flush.o $(BUILD)/idt_load.o $(BUILD)/interrupt_stubs.o $(BUILD)/kernel.o $(BUILD)/screen.o $(BUILD)/io.o $(BUILD)/gdt.o $(BUILD)/idt.o $(BUILD)/isr.o $(BUILD)/keyboard.o $(BUILD)/printk.o
+$(BUILD)/kernel.bin: $(BUILD)/kernel_entry.o $(BUILD)/gdt_flush.o $(BUILD)/idt_load.o $(BUILD)/interrupt_stubs.o $(BUILD)/kernel.o $(BUILD)/screen.o $(BUILD)/io.o $(BUILD)/gdt.o $(BUILD)/idt.o $(BUILD)/isr.o $(BUILD)/keyboard.o $(BUILD)/printk.o $(BUILD)/shell.o
 	$(LD) $(LDFLAGS) -o $@ $^ --oformat binary
 
 # ── Build 1.44 MB floppy image ──────────────────────────────
