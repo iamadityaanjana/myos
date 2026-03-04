@@ -36,6 +36,25 @@ void* kmalloc(uint32_t size) {
     return result;
 }
 
+void* kmalloc_aligned(uint32_t size, uint32_t align) {
+    if (size == 0) {
+        return 0;
+    }
+    if (align == 0) {
+        align = 1;
+    }
+
+    uint32_t aligned_addr = align_up(heap_curr_addr, align);
+    uint32_t aligned_size = align_up(size, 8);
+
+    if (aligned_addr + aligned_size > heap_end_addr) {
+        return 0;
+    }
+
+    heap_curr_addr = aligned_addr + aligned_size;
+    return (void*)aligned_addr;
+}
+
 uint32_t kheap_start() {
     return heap_start_addr;
 }

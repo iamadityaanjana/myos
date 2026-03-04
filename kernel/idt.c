@@ -1,6 +1,7 @@
 #include "idt.h"
 #include "io.h"
 #include "types.h"
+#include "memory.h"
 
 typedef struct {
     uint16_t offset_low;
@@ -15,7 +16,7 @@ typedef struct {
     uint32_t base;
 } __attribute__((packed)) IDTPointer;
 
-static IDTEntry idt[256];
+static IDTEntry* idt = 0;
 static IDTPointer idt_ptr;
 
 extern void idt_load(uint32_t ptr);
@@ -70,6 +71,10 @@ extern void irq14();
 extern void irq15();
 
 static void idt_set_gate(int n, uint32_t handler) {
+    if (!idt) {
+        return;
+    }
+
     idt[n].offset_low = (uint16_t)(handler & 0xFFFF);
     idt[n].selector = 0x08;
     idt[n].zero = 0;
@@ -105,6 +110,11 @@ void pic_remap() {
 }
 
 void idt_init() {
+    idt = (IDTEntry*)kmalloc_aligned((uint32_t)(sizeof(IDTEntry) * 256), 16);
+    if (!idt) {
+        return;
+    }
+
     for (int i = 0; i < 256; i++) {
         idt[i].offset_low = 0;
         idt[i].selector = 0;
@@ -163,8 +173,8 @@ void idt_init() {
     idt_set_gate(46, (uint32_t)irq14);
     idt_set_gate(47, (uint32_t)irq15);
 
-    idt_ptr.limit = (uint16_t)(sizeof(idt) - 1);
-    idt_ptr.base = (uint32_t)&idt;
+    idt_ptr.limit = (uint16_t)((sizeof(IDTEntry) * 256) - 1);
+    idt_ptr.base = (uint32_t)idt;
 
     idt_load((uint32_t)&idt_ptr);
 }

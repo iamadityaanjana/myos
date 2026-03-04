@@ -1,13 +1,14 @@
 #include "io.h"
 #include "screen.h"
 #include "shell.h"
+#include "memory.h"
 
 #define KBD_QUEUE_SIZE 64
 
 static int shift_pressed = 0;
 static int caps_lock = 0;
 static int extended_prefix = 0;
-static volatile uint8_t scancode_queue[KBD_QUEUE_SIZE];
+static volatile uint8_t* scancode_queue = 0;
 static volatile uint8_t queue_head = 0;
 static volatile uint8_t queue_tail = 0;
 
@@ -112,6 +113,11 @@ static void process_scancode(uint8_t scancode) {
 }
 
 void keyboard_irq_handler() {
+    if (!scancode_queue) {
+        (void)inb(0x60);
+        return;
+    }
+
     uint8_t scancode = inb(0x60);
     uint8_t next_head = (uint8_t)((queue_head + 1) % KBD_QUEUE_SIZE);
 
@@ -121,7 +127,17 @@ void keyboard_irq_handler() {
     }
 }
 
+void keyboard_init() {
+    scancode_queue = (volatile uint8_t*)kmalloc(KBD_QUEUE_SIZE);
+    queue_head = 0;
+    queue_tail = 0;
+}
+
 void keyboard_process_pending() {
+    if (!scancode_queue) {
+        return;
+    }
+
     while (queue_tail != queue_head) {
         uint8_t scancode = scancode_queue[queue_tail];
         queue_tail = (uint8_t)((queue_tail + 1) % KBD_QUEUE_SIZE);

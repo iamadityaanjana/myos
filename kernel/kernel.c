@@ -19,6 +19,7 @@ void kernel_main() {
     gdt_init();
     memory_init();
     paging_init();
+    keyboard_init();
 
     // print("Screen driver initialized.\n");
     // print("Setting up IDT...\n");

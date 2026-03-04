@@ -1,10 +1,19 @@
 #include "paging.h"
+#include "memory.h"
 
-static uint32_t page_directory[1024] __attribute__((aligned(4096)));
-static uint32_t first_page_table[1024] __attribute__((aligned(4096)));
+static uint32_t* page_directory = 0;
+static uint32_t* first_page_table = 0;
 static int paging_enabled = 0;
 
 void paging_init() {
+    page_directory = (uint32_t*)kmalloc_aligned(1024 * sizeof(uint32_t), 4096);
+    first_page_table = (uint32_t*)kmalloc_aligned(1024 * sizeof(uint32_t), 4096);
+
+    if (!page_directory || !first_page_table) {
+        paging_enabled = 0;
+        return;
+    }
+
     for (int i = 0; i < 1024; i++) {
         page_directory[i] = 0x00000002;
     }

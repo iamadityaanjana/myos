@@ -53,28 +53,39 @@
   \titlepage
 \end{frame}
 
-\begin{frame}{Core-status answer: is it functional?}
+\begin{frame}{Learning objectives}
   \begin{itemize}
-    \item \textbf{Yes, at intermediate-kernel level}: heap, \texttt{kmalloc}, memory map, and paging are initialized and used.
-    \item \textbf{No, not full production VM subsystem yet}: no free list, no page-fault handler, no dynamic page mapping.
-    \item Design is intentionally minimal, stable, and debuggable for current stage.
+    \item Understand why an OS needs heap allocation and virtual memory early
+    \item Build a working kernel heap and \texttt{kmalloc}
+    \item Enable paging safely with identity mapping
+    \item Expose memory layout through a runtime memory map
+    \item Connect memory features to real kernel subsystems
   \end{itemize}
-  \concept{Definition of this stage}{
-    Functional foundation for kernel memory operations, plus shell-level observability.
+  \concept{Target level}{
+    Intermediate kernel memory management: practical, stable, and extensible.
   }
 \end{frame}
 
-\begin{frame}{What we implemented}
+\begin{frame}{Why memory management matters in kernels}
   \begin{itemize}
-    \item \texttt{memory.c}: bump allocator heap and kernel memory map export
-    \item \texttt{kmalloc(size)} with alignment and out-of-memory handling
-    \item \texttt{paging.c}: identity-mapped first 4MB, paging enabled via \texttt{CR0.PG}
-    \item Linker symbols \texttt{\_kernel\_start}/\texttt{\_kernel\_end} for runtime boundaries
-    \item Shell commands to inspect and test memory subsystem live
+    \item Kernel structures grow quickly: IDT tables, queues, driver state
+    \item Static arrays are inflexible and harder to evolve
+    \item Paging provides address-translation foundation for future process isolation
+    \item Memory map visibility is critical for debugging and correctness
   \end{itemize}
 \end{frame}
 
-\begin{frame}{Architecture flow}
+\begin{frame}{What was implemented in this chapter}
+  \begin{itemize}
+    \item \texttt{memory.c}: heap init, \texttt{kmalloc}, \texttt{kmalloc\_aligned}, map export
+    \item \texttt{paging.c}: page directory + first page table + \texttt{CR3}/\texttt{CR0.PG}
+    \item Linker boundary symbols: \texttt{\_kernel\_start}, \texttt{\_kernel\_end}
+    \item Core integrations: IDT allocation, keyboard queue allocation, paging table allocation
+    \item Shell diagnostics: \texttt{heap}, \texttt{kmalloc}, \texttt{memmap}, \texttt{paging}
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{Boot-time memory pipeline}
 \begin{center}
 \begin{tikzpicture}[
   box/.style={rectangle,draw,rounded corners=4pt,
@@ -87,14 +98,14 @@
   \node[box,fill=codegreen!30] (page) at (6.8,0) {paging\_init};
   \node[box,fill=codepurple!30] (irq) at (10.2,0) {sti + shell};
 
-  \node[box,fill=codeorange!35] (cmd) at (6.8,-1.6) {heap/kmalloc/memmap/paging};
-  \node[box,fill=codewhite!80] (view) at (10.2,-1.6) {runtime diagnostics};
+  \node[box,fill=codeorange!35] (core) at (6.8,-1.6) {IDT/queue/page tables\\via kmalloc};
+  \node[box,fill=codewhite!80] (view) at (10.2,-1.6) {shell diagnostics};
 
   \draw[arr] (boot) -- (mem);
   \draw[arr] (mem) -- (page);
   \draw[arr] (page) -- (irq);
-  \draw[arr] (irq) -- (cmd);
-  \draw[arr] (cmd) -- (view);
+  \draw[arr] (irq) -- (core);
+  \draw[arr] (core) -- (view);
 \end{tikzpicture}
 \end{center}
 \end{frame}
@@ -117,7 +128,14 @@ void* kmalloc(uint32_t size) {
     heap_curr_addr += size;
     return result;
 }
+
+void* kmalloc_aligned(uint32_t size, uint32_t align) {
+    // used for paging structures and low-level tables
+}
 \end{lstlisting}
+\concept{Teaching point}{
+  A bump allocator is the simplest robust starting allocator for a freestanding kernel.
+}
 \end{frame}
 
 \begin{frame}{Keyword glossary: heap terms}
@@ -136,7 +154,7 @@ void* kmalloc(uint32_t size) {
   \end{tabular}
 \end{frame}
 
-\begin{frame}[fragile]{Memory map reporting}
+\begin{frame}[fragile]{Memory map as a teaching/debugging tool}
 \begin{lstlisting}[style=clang]
 out_regions[i++] = {"IVT+BDA", 0x00000000, 0x00000500};
 out_regions[i++] = {"Bootloader", 0x00007C00, 0x00007E00};
@@ -146,12 +164,15 @@ out_regions[i++] = {"Kernel stack", 0x0008F000, 0x00090000};
 out_regions[i++] = {"VGA text", 0x000B8000, 0x000B9000};
 \end{lstlisting}
 \concept{Purpose}{
-  Gives immediate visibility of major memory regions from shell command \texttt{memmap}.
+  Shows students where core components live physically in RAM during boot and runtime.
 }
 \end{frame}
 
-\begin{frame}[fragile]{Paging implementation (optional but sexy)}
+\begin{frame}[fragile]{Paging implementation walkthrough}
 \begin{lstlisting}[style=clang]
+page_directory = kmalloc_aligned(4096, 4096);
+first_page_table = kmalloc_aligned(4096, 4096);
+
 for (int i = 0; i < 1024; i++) page_directory[i] = 0x00000002;
 for (int i = 0; i < 1024; i++) first_page_table[i] = (i * 0x1000) | 0x3;
 
@@ -162,7 +183,8 @@ set CR0.PG bit
 \textbf{Result:}
 \begin{itemize}
   \item Enables paging with identity mapping for first 4MB
-  \item Keeps current kernel addresses valid while introducing page translation
+  \item Uses allocator-backed structures, not compile-time static tables
+  \item Keeps current kernel addresses valid while introducing translation layer
 \end{itemize}
 \end{frame}
 
@@ -182,11 +204,23 @@ set CR0.PG bit
   \end{tabular}
 \end{frame}
 
-\begin{frame}{Shell commands added for this stage}
+\begin{frame}{How memory is used by the OS core (not only shell)}
+  \begin{itemize}
+    \item \textbf{IDT storage}: allocated via \texttt{kmalloc\_aligned} in \texttt{idt\_init}
+    \item \textbf{Keyboard queue}: allocated via \texttt{kmalloc} in \texttt{keyboard\_init}
+    \item \textbf{Paging tables}: allocated via \texttt{kmalloc\_aligned} in \texttt{paging\_init}
+    \item \textbf{Heap boundaries}: derived from linker symbols at boot
+  \end{itemize}
+  \concept{Conclusion}{
+    Memory management is now part of kernel runtime infrastructure, not just command output.
+  }
+\end{frame}
+
+\begin{frame}{Shell commands used for observation}
   \begin{itemize}
     \item Memory core: \texttt{heap}, \texttt{kmalloc N}, \texttt{memmap}, \texttt{paging}
-    \item Time/date: \texttt{time}, \texttt{set time HH:MM:SS}, \texttt{calendar}
-    \item Utility: \texttt{echo TEXT}, \texttt{reboot} (plus existing commands)
+    \item Time/date utilities: \texttt{time}, \texttt{set time HH:MM:SS}, \texttt{calendar}
+    \item General utilities: \texttt{echo TEXT}, \texttt{reboot}, \texttt{shutdown}
   \end{itemize}
   \concept{Why shell mattered}{
     We turned memory internals into observable runtime behavior without external debugger tooling.
@@ -199,7 +233,10 @@ set CR0.PG bit
     \toprule
     \textbf{Module} & \textbf{Change} \\
     \midrule
-    \texttt{kernel.c} & Added \texttt{memory\_init()} and \texttt{paging\_init()} before interrupt enable. \\
+    \texttt{kernel.c} & Added \texttt{memory\_init()}, \texttt{paging\_init()}, and \texttt{keyboard\_init()} before interrupt enable. \\
+    \texttt{idt.c} & IDT table moved from static storage to \texttt{kmalloc\_aligned} allocation. \\
+    \texttt{keyboard.c} & Scancode queue moved to heap allocation in \texttt{keyboard\_init}. \\
+    \texttt{paging.c} & Page directory/table moved to aligned heap allocation. \\
     \texttt{shell.c} & Added memory/time/calendar/paging command handlers and parser logic. \\
     \texttt{printk.c} & Added \texttt{print\_hex()} for address and flag reporting. \\
     \texttt{linker.ld} & Exported \texttt{\_kernel\_start}/\texttt{\_kernel\_end} symbols. \\
@@ -213,14 +250,14 @@ set CR0.PG bit
   \begin{enumerate}
     \item Boot and reach prompt without resets
     \item Run \texttt{heap} and verify used/free counters
-    \item Run \texttt{kmalloc 64} repeatedly and observe address progression
+    \item Run \texttt{kmalloc 64} repeatedly and observe aligned address progression
     \item Run \texttt{memmap} and verify kernel/heap/stack/VGA ranges
     \item Run \texttt{paging} and verify enabled state
     \item Run \texttt{time} and \texttt{calendar} to test RTC path
   \end{enumerate}
 \end{frame}
 
-\begin{frame}{What is still next (advanced kernel memory)}
+\begin{frame}{Limits of this stage (what comes next)}
   \begin{itemize}
     \item Freeing allocator: \texttt{kfree()} and free-list or slab-like strategy
     \item Page-fault handler and demand mapping

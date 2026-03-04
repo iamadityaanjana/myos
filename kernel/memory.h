@@ -11,6 +11,7 @@ typedef struct {
 
 void memory_init();
 void* kmalloc(uint32_t size);
+void* kmalloc_aligned(uint32_t size, uint32_t align);
 
 uint32_t kheap_start();
 uint32_t kheap_end();
