@@ -1,9 +1,14 @@
 #include "io.h"
 #include "screen.h"
 
+#define KBD_QUEUE_SIZE 64
+
 static int shift_pressed = 0;
 static int caps_lock = 0;
 static int extended_prefix = 0;
+static volatile uint8_t scancode_queue[KBD_QUEUE_SIZE];
+static volatile uint8_t queue_head = 0;
+static volatile uint8_t queue_tail = 0;
 
 static const char keymap[128] = {
     0,
@@ -53,12 +58,9 @@ static void put_tab() {
     }
 }
 
-void keyboard_handler() {
-    uint8_t scancode = inb(0x60);
-
+static void process_scancode(uint8_t scancode) {
     if (scancode == 0xE0) {
         extended_prefix = 1;
-        outb(0x20, 0x20);
         return;
     }
 
@@ -70,31 +72,25 @@ void keyboard_handler() {
         } else if (scancode == 0x50) {
             scroll_view_down(1);
         }
-
-        outb(0x20, 0x20);
         return;
     }
 
     if (scancode == 0x2A || scancode == 0x36) {
         shift_pressed = 1;
-        outb(0x20, 0x20);
         return;
     }
 
     if (scancode == 0xAA || scancode == 0xB6) {
         shift_pressed = 0;
-        outb(0x20, 0x20);
         return;
     }
 
     if (scancode == 0x3A) {
         caps_lock = !caps_lock;
-        outb(0x20, 0x20);
         return;
     }
 
     if (scancode & 0x80) {
-        outb(0x20, 0x20);
         return;
     }
 
@@ -120,6 +116,22 @@ void keyboard_handler() {
     } else if (c != 0) {
         put_char(c);
     }
+}
 
-    outb(0x20, 0x20);
+void keyboard_irq_handler() {
+    uint8_t scancode = inb(0x60);
+    uint8_t next_head = (uint8_t)((queue_head + 1) % KBD_QUEUE_SIZE);
+
+    if (next_head != queue_tail) {
+        scancode_queue[queue_head] = scancode;
+        queue_head = next_head;
+    }
+}
+
+void keyboard_process_pending() {
+    while (queue_tail != queue_head) {
+        uint8_t scancode = scancode_queue[queue_tail];
+        queue_tail = (uint8_t)((queue_tail + 1) % KBD_QUEUE_SIZE);
+        process_scancode(scancode);
+    }
 }

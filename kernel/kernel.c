@@ -1,6 +1,8 @@
 #include "screen.h"
+#include "gdt.h"
 #include "idt.h"
 #include "printk.h"
+#include "keyboard.h"
 
 void kernel_main() {
     clear_screen();
@@ -11,6 +13,8 @@ void kernel_main() {
     print("=================================\n\n");
 
     set_color(0x07);
+    gdt_init();
+
     // print("Screen driver initialized.\n");
     // print("Setting up IDT...\n");
     idt_init();
@@ -34,5 +38,6 @@ void kernel_main() {
 
     while (1) {
         __asm__ volatile("hlt");
+        keyboard_process_pending();
     }
 }

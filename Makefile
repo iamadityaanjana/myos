@@ -14,14 +14,15 @@ BOOT_SRC := boot/bootloader.asm
 KERNEL_C := kernel/kernel.c
 SCREEN_C := kernel/screen.c
 IO_C     := kernel/io.c
+GDT_C    := kernel/gdt.c
 IDT_C    := kernel/idt.c
+ISR_C    := kernel/isr.c
 KBD_C    := kernel/keyboard.c
 PRINTK_C := kernel/printk.c
 KERNEL_A := kernel/kernel_entry.asm
+GDT_A    := kernel/gdt_flush.asm
 IDT_A    := kernel/idt_load.asm
-KBD_A    := kernel/keyboard.asm
-IRQ_A    := kernel/irq_default.asm
-PANIC_A  := kernel/isr_panic.asm
+INT_A    := kernel/interrupt_stubs.asm
 
 .PHONY: all clean run
 
@@ -43,16 +44,12 @@ $(BUILD)/kernel_entry.o: $(KERNEL_A) | $(BUILD)
 $(BUILD)/idt_load.o: $(IDT_A) | $(BUILD)
 	$(AS) -f elf32 $< -o $@
 
-# ── Keyboard ISR stub object ─────────────────────────────────
-$(BUILD)/keyboard_isr.o: $(KBD_A) | $(BUILD)
+# ── GDT flush object ─────────────────────────────────────────
+$(BUILD)/gdt_flush.o: $(GDT_A) | $(BUILD)
 	$(AS) -f elf32 $< -o $@
 
-# ── Default IRQ ISR object ───────────────────────────────────
-$(BUILD)/irq_default.o: $(IRQ_A) | $(BUILD)
-	$(AS) -f elf32 $< -o $@
-
-# ── Panic ISR object (CPU exceptions) ────────────────────────
-$(BUILD)/isr_panic.o: $(PANIC_A) | $(BUILD)
+# ── Interrupt stubs object ───────────────────────────────────
+$(BUILD)/interrupt_stubs.o: $(INT_A) | $(BUILD)
 	$(AS) -f elf32 $< -o $@
 
 # ── Kernel C object ───────────────────────────────────────────
@@ -67,8 +64,16 @@ $(BUILD)/screen.o: $(SCREEN_C) | $(BUILD)
 $(BUILD)/io.o: $(IO_C) | $(BUILD)
 	$(CC) $(CFLAGS) -c $< -o $@
 
+# ── GDT object ───────────────────────────────────────────────
+$(BUILD)/gdt.o: $(GDT_C) | $(BUILD)
+	$(CC) $(CFLAGS) -c $< -o $@
+
 # ── IDT object ───────────────────────────────────────────────
 $(BUILD)/idt.o: $(IDT_C) | $(BUILD)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+# ── ISR dispatcher object ────────────────────────────────────
+$(BUILD)/isr.o: $(ISR_C) | $(BUILD)
 	$(CC) $(CFLAGS) -c $< -o $@
 
 # ── Keyboard object ──────────────────────────────────────────
@@ -80,7 +85,7 @@ $(BUILD)/printk.o: $(PRINTK_C) | $(BUILD)
 	$(CC) $(CFLAGS) -c $< -o $@
 
 # ── Link kernel into flat binary ──────────────────────────────
-$(BUILD)/kernel.bin: $(BUILD)/kernel_entry.o $(BUILD)/idt_load.o $(BUILD)/keyboard_isr.o $(BUILD)/irq_default.o $(BUILD)/isr_panic.o $(BUILD)/kernel.o $(BUILD)/screen.o $(BUILD)/io.o $(BUILD)/idt.o $(BUILD)/keyboard.o $(BUILD)/printk.o
+$(BUILD)/kernel.bin: $(BUILD)/kernel_entry.o $(BUILD)/gdt_flush.o $(BUILD)/idt_load.o $(BUILD)/interrupt_stubs.o $(BUILD)/kernel.o $(BUILD)/screen.o $(BUILD)/io.o $(BUILD)/gdt.o $(BUILD)/idt.o $(BUILD)/isr.o $(BUILD)/keyboard.o $(BUILD)/printk.o
 	$(LD) $(LDFLAGS) -o $@ $^ --oformat binary
 
 # ── Build 1.44 MB floppy image ──────────────────────────────
