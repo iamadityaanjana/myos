@@ -4,6 +4,8 @@
 #include "printk.h"
 #include "keyboard.h"
 #include "shell.h"
+#include "memory.h"
+#include "paging.h"
 
 void kernel_main() {
     clear_screen();
@@ -15,6 +17,8 @@ void kernel_main() {
 
     set_color(0x07);
     gdt_init();
+    memory_init();
+    paging_init();
 
     // print("Screen driver initialized.\n");
     // print("Setting up IDT...\n");

@@ -20,6 +20,9 @@ ISR_C    := kernel/isr.c
 KBD_C    := kernel/keyboard.c
 PRINTK_C := kernel/printk.c
 SHELL_C  := kernel/shell.c
+MEM_C    := kernel/memory.c
+PAGING_C := kernel/paging.c
+RTC_C    := kernel/rtc.c
 KERNEL_A := kernel/kernel_entry.asm
 GDT_A    := kernel/gdt_flush.asm
 IDT_A    := kernel/idt_load.asm
@@ -89,8 +92,20 @@ $(BUILD)/printk.o: $(PRINTK_C) | $(BUILD)
 $(BUILD)/shell.o: $(SHELL_C) | $(BUILD)
 	$(CC) $(CFLAGS) -c $< -o $@
 
+# ── memory object ────────────────────────────────────────────
+$(BUILD)/memory.o: $(MEM_C) | $(BUILD)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+# ── paging object ────────────────────────────────────────────
+$(BUILD)/paging.o: $(PAGING_C) | $(BUILD)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+# ── rtc object ───────────────────────────────────────────────
+$(BUILD)/rtc.o: $(RTC_C) | $(BUILD)
+	$(CC) $(CFLAGS) -c $< -o $@
+
 # ── Link kernel into flat binary ──────────────────────────────
-$(BUILD)/kernel.bin: $(BUILD)/kernel_entry.o $(BUILD)/gdt_flush.o $(BUILD)/idt_load.o $(BUILD)/interrupt_stubs.o $(BUILD)/kernel.o $(BUILD)/screen.o $(BUILD)/io.o $(BUILD)/gdt.o $(BUILD)/idt.o $(BUILD)/isr.o $(BUILD)/keyboard.o $(BUILD)/printk.o $(BUILD)/shell.o
+$(BUILD)/kernel.bin: $(BUILD)/kernel_entry.o $(BUILD)/gdt_flush.o $(BUILD)/idt_load.o $(BUILD)/interrupt_stubs.o $(BUILD)/kernel.o $(BUILD)/screen.o $(BUILD)/io.o $(BUILD)/gdt.o $(BUILD)/idt.o $(BUILD)/isr.o $(BUILD)/keyboard.o $(BUILD)/printk.o $(BUILD)/shell.o $(BUILD)/memory.o $(BUILD)/paging.o $(BUILD)/rtc.o
 	$(LD) $(LDFLAGS) -o $@ $^ --oformat binary
 
 # ── Build 1.44 MB floppy image ──────────────────────────────

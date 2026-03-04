@@ -27,3 +27,12 @@ void print_int(int n) {
         put_char(buffer[j]);
     }
 }
+
+void print_hex(uint32_t n) {
+    const char* hex = "0123456789ABCDEF";
+    print("0x");
+    for (int i = 7; i >= 0; i--) {
+        uint8_t digit = (uint8_t)((n >> (i * 4)) & 0xF);
+        put_char(hex[digit]);
+    }
+}

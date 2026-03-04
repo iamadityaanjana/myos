@@ -26,17 +26,35 @@ start:
     ; Enable A20 line via fast A20 port
     call enable_a20
 
-    ; Load kernel: 16 sectors starting at sector 2 → address 0x1000
+    ; Load kernel in two CHS reads:
+    ;   read 17 sectors from C0/H0/S2  -> 0x1000
+    ;   read 18 sectors from C0/H1/S1  -> 0x3200
+    ; Total = 35 sectors (17.5 KiB), enough for current intermediate kernel.
     ; ES:BX = 0x0000:0x1000
     xor ax, ax
     mov es, ax           ; ensure ES=0 for the destination address
     mov bx, 0x1000       ; physical address = ES*16 + BX = 0x1000
+
+    ; First chunk: head 0, sectors 2..18 (17 sectors)
     mov ah, 0x02         ; BIOS read
-    mov al, 16           ; sectors to read
+    mov al, 17           ; sectors to read
     mov ch, 0            ; cylinder 0
     mov cl, 2            ; start at sector 2
     mov dh, 0            ; head 0
     mov dl, [boot_drive] ; drive number saved from BIOS
+    int 0x13
+    jc disk_error
+
+    ; Second chunk destination = 0x1000 + 17*512 = 0x3200
+    mov bx, 0x3200
+
+    ; Second chunk: head 1, sectors 1..18 (18 sectors)
+    mov ah, 0x02
+    mov al, 18
+    mov ch, 0
+    mov cl, 1
+    mov dh, 1
+    mov dl, [boot_drive]
     int 0x13
     jc disk_error
 

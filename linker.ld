@@ -7,6 +7,7 @@ SECTIONS
    * The linker (not NASM ORG) sets this base address.
    */
   . = 0x1000;
+  _kernel_start = .;
 
   .text : {
     *(.text*)
@@ -24,4 +25,6 @@ SECTIONS
     *(.bss*)
     *(COMMON)
   }
+
+  _kernel_end = .;
 }
