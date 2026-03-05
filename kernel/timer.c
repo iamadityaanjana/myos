@@ -2,7 +2,6 @@
 
 #include "io.h"
 #include "rtc.h"
-#include "scheduler.h"
 
 #define PIT_BASE_FREQUENCY 1193180
 
@@ -60,8 +59,6 @@ void timer_init(uint32_t hz) {
 void timer_irq_handler() {
     timer_ticks++;
     subsecond_ticks++;
-
-    scheduler_on_tick(timer_ticks);
 
     if (subsecond_ticks >= tick_hz) {
         subsecond_ticks = 0;

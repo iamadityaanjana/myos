@@ -3,7 +3,7 @@
 
 #include "types.h"
 
-typedef struct {
+typedef struct registers {
     uint32_t edi;
     uint32_t esi;
     uint32_t ebp;
@@ -20,6 +20,6 @@ typedef struct {
 } registers_t;
 
 void isr_handler(registers_t* regs);
-void irq_handler(registers_t* regs);
+uint32_t irq_handler(registers_t* regs);
 
 #endif

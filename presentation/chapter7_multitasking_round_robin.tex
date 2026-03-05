@@ -35,8 +35,8 @@
   tabsize=4
 }
 
-\title[MyOS Chapter 7]{\textbf{MyOS Chapter 7: Multitasking (Round-Robin Scheduler)}}
-\subtitle{Background tasks + timer ticks + scheduler observability}
+\title[MyOS Chapter 7]{\textbf{MyOS Chapter 7: Multitasking (Preemptive Context Switching)}}
+\subtitle{Per-task stacks + IRQ frame save/restore + round-robin fairness}
 \author{MyOS Project}
 \date{March 2026}
 \institute{x86 Protected Mode Kernel Engineering}
@@ -65,14 +65,15 @@
 \begin{frame}{What was implemented}
   \begin{itemize}
     \item PIT timer configured at 100 Hz (IRQ0)
-    \item IRQ handler dispatches both timer (IRQ0) and keyboard (IRQ1)
+    \item IRQ handler returns a selected interrupt frame pointer to assembly stub
     \item Round-robin scheduler with runtime-created named background tasks
+    \item Each task owns a dedicated kernel stack and saved CPU frame
     \item Background-task shell commands: \texttt{bg run/list/stop} for arbitrary task names
     \item Tick, uptime, and software clock APIs for runtime visibility
   \end{itemize}
 \end{frame}
 
-\begin{frame}{System flow: interrupt to task execution}
+\begin{frame}{System flow: interrupt to context switch}
 \begin{center}
 \begin{tikzpicture}[
   box/.style={rectangle,draw,rounded corners=4pt,
@@ -83,10 +84,10 @@
   \node[box,fill=codeyellow!40] (pit) at (0,0) {PIT Tick\\IRQ0};
   \node[box,fill=codeblue!30] (irq) at (3.2,0) {\texttt{irq\_handler}};
   \node[box,fill=codegreen!30] (timer) at (6.4,0) {\texttt{timer\_irq\_handler}};
-  \node[box,fill=codepurple!30] (sched) at (9.6,0) {\texttt{scheduler\_on\_tick}};
+  \node[box,fill=codepurple!30] (sched) at (9.6,0) {\texttt{scheduler\_schedule}};
 
-  \node[box,fill=codeorange!35] (rr) at (6.4,-1.6) {Round-robin pick};
-  \node[box,fill=codewhite!80] (run) at (9.6,-1.6) {named task\\counter step};
+  \node[box,fill=codeorange!35] (rr) at (6.4,-1.6) {Save current\\task ESP frame};
+  \node[box,fill=codewhite!80] (run) at (9.6,-1.6) {Return next ESP\\to \texttt{iretd}};
 
   \draw[arr] (pit) -- (irq);
   \draw[arr] (irq) -- (timer);
@@ -110,7 +111,6 @@ void timer_init(uint32_t hz) {
 
 void timer_irq_handler() {
     timer_ticks++;
-    scheduler_on_tick(timer_ticks);
     ... // uptime and clock update
 }
 \end{lstlisting}
@@ -121,47 +121,52 @@ void timer_irq_handler() {
 
 \begin{frame}[fragile]{IRQ integration changes}
 \begin{lstlisting}[style=clang]
-void irq_handler(registers_t* regs) {
+uint32_t irq_handler(registers_t* regs) {
+    uint32_t next = (uint32_t)regs;
     if (regs->int_no == 32) {
         timer_irq_handler();
+        next = scheduler_schedule(regs, timer_get_ticks());
     }
     if (regs->int_no == 33) {
         keyboard_irq_handler();
     }
     ... // PIC EOI
+    return next;
 }
 \end{lstlisting}
 \begin{itemize}
-  \item PIC mask changed to allow IRQ0 and IRQ1
-  \item Timer and keyboard now co-exist under same interrupt framework
+  \item Assembly stub consumes returned ESP and switches stack before \texttt{iretd}
+  \item PIC mask keeps both timer and keyboard active under one IRQ dispatcher
 \end{itemize}
 \end{frame}
 
-\begin{frame}[fragile]{Round-robin scheduler design}
+\begin{frame}[fragile]{Round-robin context-switch design}
 \begin{lstlisting}[style=clang]
-for (tries = 0; tries < SCHED_MAX_TASKS; tries++) {
-    rr_last_index = (rr_last_index + 1) % SCHED_MAX_TASKS;
-    if (!task_table[rr_last_index].active) continue;
-
+if (current_task_index >= 0) {
+    task->esp = (uint32_t)current_regs;   // save preempted frame
     task->runs++;
     task->last_tick = tick_count;
-    task->step(task);    // increments task counter
-    break;
+    return kernel_context_esp;            // alternate back to kernel
 }
+
+next_index = find_next_active_after(rr_last_index);
+running_task = &task_table[next_index];
+return task_table[next_index].esp;       // restore next task frame
 \end{lstlisting}
 \concept{Round-robin property}{
-  Every active task gets fair turn in cyclic order, one task per timer tick.
+  Scheduler rotates through active tasks and restores each saved CPU context fairly.
 }
 \end{frame}
 
 \begin{frame}{Background task model used}
   \begin{itemize}
     \item Any task name can be created (e.g. \texttt{alpha}, \texttt{render}, \texttt{netrx})
-    \item Each task maintains a \texttt{counter} incremented on each scheduled run
-    \item \texttt{runs} shows total schedule events, \texttt{last\_tick} shows most recent tick
+    \item Each task is bootstrapped with its own stack and initial interrupt-return frame
+    \item Task code runs on its own stack and is preempted by timer IRQ0
+    \item \texttt{runs}, \texttt{counter}, and \texttt{last\_tick} expose per-task progress and fairness
   \end{itemize}
   \concept{Purpose of demo tasks}{
-    Keep work deterministic and lightweight while proving fairness and concurrent progress.
+    Keep workload deterministic while proving genuine save/restore context switching.
   }
 \end{frame}
 
@@ -185,12 +190,12 @@ for (tries = 0; tries < SCHED_MAX_TASKS; tries++) {
 \begin{frame}{Are these tasks real?}
   \begin{itemize}
     \item Yes: task scheduling is driven by real kernel timer IRQ0 events
-    \item Yes: task state is stored in kernel memory and updated by scheduler ticks
+    \item Yes: CPU register frames are saved and restored from task-owned stacks
     \item The environment is QEMU-emulated hardware, but scheduling logic is native OS code
   \end{itemize}
   \concept{Interpretation}{
-    This is genuine kernel multitasking behavior at the scheduler layer,
-    before full CPU register context-switch implementation.
+    This chapter now includes full kernel-mode preemptive context switching
+    with interrupt-frame stack handoff.
   }
 \end{frame}
 
@@ -213,7 +218,8 @@ for (tries = 0; tries < SCHED_MAX_TASKS; tries++) {
     \texttt{IRQ0} & Timer interrupt line used as scheduler heartbeat. \\
     \texttt{Round-robin} & Cyclic scheduling policy giving each task a fair turn. \\
     \texttt{Quantum} & Time slice available before scheduler moves to next task. \\
-    \texttt{Background task} & Task executed by scheduler without blocking shell input loop. \\
+    \texttt{Context switch} & Save current task frame and restore another task frame on IRQ return. \\
+    \texttt{Background task} & Task with dedicated stack/frame preempted by timer interrupts. \\
     \texttt{Tick} & Single timer interrupt event; base time unit in scheduler. \\
     \texttt{Uptime} & Total running time since boot, derived from ticks. \\
     \bottomrule
@@ -227,8 +233,9 @@ for (tries = 0; tries < SCHED_MAX_TASKS; tries++) {
     \textbf{Module} & \textbf{Change} \\
     \midrule
     \texttt{timer.c/h} & New PIT setup, tick counting, uptime, and software clock APIs \\
-    \texttt{scheduler.c/h} & New task table, round-robin engine, start/stop/list interfaces \\
-    \texttt{isr.c} & IRQ0 dispatch added before keyboard IRQ1 handling \\
+    \texttt{scheduler.c/h} & Task stacks, saved ESP frames, and round-robin context selector \\
+    \texttt{isr.c} & IRQ0 now returns next execution frame from scheduler \\
+    \texttt{interrupt\_stubs.asm} & IRQ common stub switches ESP to returned frame before \texttt{iretd} \\
     \texttt{idt.c} & PIC mask updated to enable both timer and keyboard lines \\
     \texttt{kernel.c} & Added \texttt{scheduler\_init()} and \texttt{timer\_init(100)} in boot path \\
     \texttt{shell.c} & Added background-task and time-tick shell commands \\
@@ -249,23 +256,23 @@ for (tries = 0; tries < SCHED_MAX_TASKS; tries++) {
 
 \begin{frame}{Limits and next evolution}
   \begin{itemize}
-    \item Current scheduler runs task \texttt{step()} functions, not full CPU-context switching
-    \item No per-task stack/register save-restore yet
-    \item Next step: true task contexts, stack switching, and preemptive task frames
+    \item Context switching is currently kernel-mode only (ring 0 tasks)
+    \item Tasks currently share kernel address space (no per-process VM yet)
   \end{itemize}
-  \warn{This stage is a strong multitasking foundation and a correct bridge to full context-switching kernels.}
+  \warn{This stage delivers true preemptive task frame switching and sets up process-grade multitasking next.}
 \end{frame}
 
 \begin{frame}{Outcome}
   \begin{itemize}
-    \item MyOS now has a working round-robin scheduler heartbeat
-    \item Background tasks are controllable from shell in real time
+    \item MyOS now performs timer-driven preemptive context switching
+    \item Background tasks run on dedicated stacks with saved/restored CPU frames
+    \item Background tasks remain controllable from shell in real time
     \item Timer-driven OS clock and uptime are continuously maintained
-    \item Kernel architecture is now ready for advanced task context switching
+    \item Kernel architecture is now ready for user-mode process evolution
   \end{itemize}
   \vspace{8pt}
   \begin{center}
-    \Large \textbf{Chapter 7 unlocks real-time kernel multitasking behavior.}
+    \Large \textbf{Chapter 7 now includes real preemptive CPU-context switching.}
   \end{center}
 \end{frame}
 

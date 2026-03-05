@@ -140,6 +140,12 @@ irq_common_stub:
     call irq_handler
     add esp, 4
 
+    test eax, eax
+    jz .use_current_irq_frame
+    mov esp, eax
+
+.use_current_irq_frame:
+
     popa
     add esp, 8
     iretd

@@ -6,6 +6,8 @@
 #define SCHED_MAX_TASKS 8
 #define SCHED_TASK_NAME_MAX 16
 
+typedef struct registers registers_t;
+
 typedef struct {
     int id;
     char name[SCHED_TASK_NAME_MAX];
@@ -16,7 +18,7 @@ typedef struct {
 } sched_task_info_t;
 
 void scheduler_init();
-void scheduler_on_tick(uint32_t tick_count);
+uint32_t scheduler_schedule(registers_t* current_regs, uint32_t tick_count);
 
 int scheduler_start_named_task(const char* name);
 int scheduler_stop_task_by_id(int id);

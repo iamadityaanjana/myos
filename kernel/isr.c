@@ -4,6 +4,7 @@
 #include "printk.h"
 #include "keyboard.h"
 #include "timer.h"
+#include "scheduler.h"
 
 static const char* exception_messages[32] = {
     "Division By Zero",
@@ -60,9 +61,12 @@ void isr_handler(registers_t* regs) {
     }
 }
 
-void irq_handler(registers_t* regs) {
+uint32_t irq_handler(registers_t* regs) {
+    uint32_t next_frame = (uint32_t)regs;
+
     if (regs->int_no == 32) {
         timer_irq_handler();
+        next_frame = scheduler_schedule(regs, timer_get_ticks());
     }
 
     if (regs->int_no == 33) {
@@ -73,4 +77,6 @@ void irq_handler(registers_t* regs) {
         outb(0xA0, 0x20);
     }
     outb(0x20, 0x20);
+
+    return next_frame;
 }

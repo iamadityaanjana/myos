@@ -1,23 +1,37 @@
 #include "scheduler.h"
 
+#include "isr.h"
 #include "memory.h"
 
-typedef struct sched_task sched_task_t;
-typedef void (*task_step_fn)(sched_task_t*);
+#define SCHED_TASK_STACK_SIZE 4096
 
-struct sched_task {
+typedef struct {
     int id;
     char name[SCHED_TASK_NAME_MAX];
     int active;
     uint32_t runs;
     uint32_t last_tick;
     uint32_t counter;
-    task_step_fn step;
-};
+    uint32_t esp;
+} sched_task_t;
 
 static sched_task_t* task_table = 0;
 static int next_id = 1;
 static int rr_last_index = -1;
+static int current_task_index = -1;
+static uint32_t kernel_context_esp = 0;
+static volatile sched_task_t* running_task = 0;
+
+static void scheduler_task_entry() {
+    while (1) {
+        if (running_task && running_task->active) {
+            ((sched_task_t*)running_task)->counter++;
+        }
+
+        for (volatile uint32_t spin = 0; spin < 50000; spin++) {
+        }
+    }
+}
 
 static int str_equals(const char* a, const char* b) {
     int i = 0;
@@ -39,10 +53,6 @@ static void str_copy_name(char* dst, const char* src) {
     dst[i] = '\0';
 }
 
-static void generic_count_step(sched_task_t* task) {
-    task->counter++;
-}
-
 static int find_active_by_name(const char* name) {
     if (!task_table) {
         return -1;
@@ -54,6 +64,46 @@ static int find_active_by_name(const char* name) {
         }
     }
     return -1;
+}
+
+static int find_next_active_after(int start_index) {
+    if (!task_table) {
+        return -1;
+    }
+
+    for (int i = 1; i <= SCHED_MAX_TASKS; i++) {
+        int idx = (start_index + i) % SCHED_MAX_TASKS;
+        if (task_table[idx].active) {
+            return idx;
+        }
+    }
+
+    return -1;
+}
+
+static uint32_t build_initial_task_frame() {
+    uint8_t* stack = (uint8_t*)kmalloc_aligned(SCHED_TASK_STACK_SIZE, 16);
+    if (!stack) {
+        return 0;
+    }
+
+    registers_t* frame = (registers_t*)(stack + SCHED_TASK_STACK_SIZE - sizeof(registers_t));
+
+    frame->edi = 0;
+    frame->esi = 0;
+    frame->ebp = 0;
+    frame->esp = 0;
+    frame->ebx = 0;
+    frame->edx = 0;
+    frame->ecx = 0;
+    frame->eax = 0;
+    frame->int_no = 0;
+    frame->err_code = 0;
+    frame->eip = (uint32_t)scheduler_task_entry;
+    frame->cs = 0x08;
+    frame->eflags = 0x202;
+
+    return (uint32_t)frame;
 }
 
 void scheduler_init() {
@@ -69,7 +119,7 @@ void scheduler_init() {
         task_table[i].runs = 0;
         task_table[i].last_tick = 0;
         task_table[i].counter = 0;
-        task_table[i].step = 0;
+        task_table[i].esp = 0;
     }
 }
 
@@ -84,13 +134,18 @@ int scheduler_start_named_task(const char* name) {
 
     for (int i = 0; i < SCHED_MAX_TASKS; i++) {
         if (!task_table[i].active) {
+            uint32_t initial_esp = build_initial_task_frame();
+            if (!initial_esp) {
+                return -2;
+            }
+
             task_table[i].active = 1;
             task_table[i].id = next_id++;
             str_copy_name(task_table[i].name, name);
             task_table[i].runs = 0;
             task_table[i].last_tick = 0;
             task_table[i].counter = 0;
-            task_table[i].step = generic_count_step;
+            task_table[i].esp = initial_esp;
             return task_table[i].id;
         }
     }
@@ -106,6 +161,10 @@ int scheduler_stop_task_by_id(int id) {
     for (int i = 0; i < SCHED_MAX_TASKS; i++) {
         if (task_table[i].active && task_table[i].id == id) {
             task_table[i].active = 0;
+            if (current_task_index == i) {
+                current_task_index = -1;
+                running_task = 0;
+            }
             return 1;
         }
     }
@@ -119,6 +178,10 @@ int scheduler_stop_task_by_name(const char* name) {
         return 0;
     }
     task_table[idx].active = 0;
+    if (current_task_index == idx) {
+        current_task_index = -1;
+        running_task = 0;
+    }
     return 1;
 }
 
@@ -129,6 +192,8 @@ void scheduler_stop_all() {
     for (int i = 0; i < SCHED_MAX_TASKS; i++) {
         task_table[i].active = 0;
     }
+    current_task_index = -1;
+    running_task = 0;
 }
 
 int scheduler_list_tasks(sched_task_info_t* out, int max_items) {
@@ -164,27 +229,37 @@ int scheduler_active_count() {
     return count;
 }
 
-void scheduler_on_tick(uint32_t tick_count) {
-    if (!task_table) {
-        return;
+uint32_t scheduler_schedule(registers_t* current_regs, uint32_t tick_count) {
+    if (!task_table || !current_regs) {
+        return (uint32_t)current_regs;
     }
 
-    int active = scheduler_active_count();
-    if (active == 0) {
-        return;
-    }
+    if (current_task_index >= 0 && task_table[current_task_index].active) {
+        task_table[current_task_index].esp = (uint32_t)current_regs;
+        task_table[current_task_index].runs++;
+        task_table[current_task_index].last_tick = tick_count;
 
-    for (int tries = 0; tries < SCHED_MAX_TASKS; tries++) {
-        rr_last_index = (rr_last_index + 1) % SCHED_MAX_TASKS;
-        if (!task_table[rr_last_index].active) {
-            continue;
+        current_task_index = -1;
+        running_task = 0;
+        if (kernel_context_esp != 0) {
+            return kernel_context_esp;
         }
-
-        task_table[rr_last_index].runs++;
-        task_table[rr_last_index].last_tick = tick_count;
-        if (task_table[rr_last_index].step) {
-            task_table[rr_last_index].step(&task_table[rr_last_index]);
-        }
-        break;
+        return (uint32_t)current_regs;
     }
+
+    kernel_context_esp = (uint32_t)current_regs;
+
+    if (scheduler_active_count() == 0) {
+        return kernel_context_esp;
+    }
+
+    int next_index = find_next_active_after(rr_last_index);
+    if (next_index < 0) {
+        return kernel_context_esp;
+    }
+
+    rr_last_index = next_index;
+    current_task_index = next_index;
+    running_task = &task_table[next_index];
+    return task_table[next_index].esp;
 }
