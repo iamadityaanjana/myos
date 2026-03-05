@@ -3,6 +3,7 @@
 #include "screen.h"
 #include "printk.h"
 #include "keyboard.h"
+#include "timer.h"
 
 static const char* exception_messages[32] = {
     "Division By Zero",
@@ -60,6 +61,10 @@ void isr_handler(registers_t* regs) {
 }
 
 void irq_handler(registers_t* regs) {
+    if (regs->int_no == 32) {
+        timer_irq_handler();
+    }
+
     if (regs->int_no == 33) {
         keyboard_irq_handler();
     }

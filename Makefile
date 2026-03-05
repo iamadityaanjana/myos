@@ -23,6 +23,8 @@ SHELL_C  := kernel/shell.c
 MEM_C    := kernel/memory.c
 PAGING_C := kernel/paging.c
 RTC_C    := kernel/rtc.c
+TIMER_C  := kernel/timer.c
+SCHED_C  := kernel/scheduler.c
 KERNEL_A := kernel/kernel_entry.asm
 GDT_A    := kernel/gdt_flush.asm
 IDT_A    := kernel/idt_load.asm
@@ -104,8 +106,16 @@ $(BUILD)/paging.o: $(PAGING_C) | $(BUILD)
 $(BUILD)/rtc.o: $(RTC_C) | $(BUILD)
 	$(CC) $(CFLAGS) -c $< -o $@
 
+# ── timer object ─────────────────────────────────────────────
+$(BUILD)/timer.o: $(TIMER_C) | $(BUILD)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+# ── scheduler object ─────────────────────────────────────────
+$(BUILD)/scheduler.o: $(SCHED_C) | $(BUILD)
+	$(CC) $(CFLAGS) -c $< -o $@
+
 # ── Link kernel into flat binary ──────────────────────────────
-$(BUILD)/kernel.bin: $(BUILD)/kernel_entry.o $(BUILD)/gdt_flush.o $(BUILD)/idt_load.o $(BUILD)/interrupt_stubs.o $(BUILD)/kernel.o $(BUILD)/screen.o $(BUILD)/io.o $(BUILD)/gdt.o $(BUILD)/idt.o $(BUILD)/isr.o $(BUILD)/keyboard.o $(BUILD)/printk.o $(BUILD)/shell.o $(BUILD)/memory.o $(BUILD)/paging.o $(BUILD)/rtc.o
+$(BUILD)/kernel.bin: $(BUILD)/kernel_entry.o $(BUILD)/gdt_flush.o $(BUILD)/idt_load.o $(BUILD)/interrupt_stubs.o $(BUILD)/kernel.o $(BUILD)/screen.o $(BUILD)/io.o $(BUILD)/gdt.o $(BUILD)/idt.o $(BUILD)/isr.o $(BUILD)/keyboard.o $(BUILD)/printk.o $(BUILD)/shell.o $(BUILD)/memory.o $(BUILD)/paging.o $(BUILD)/rtc.o $(BUILD)/timer.o $(BUILD)/scheduler.o
 	$(LD) $(LDFLAGS) -o $@ $^ --oformat binary
 
 # ── Build 1.44 MB floppy image ──────────────────────────────

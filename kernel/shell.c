@@ -6,16 +6,13 @@
 #include "memory.h"
 #include "paging.h"
 #include "rtc.h"
+#include "timer.h"
+#include "scheduler.h"
 
 #define SHELL_MAX_INPUT 64
 
 static char input_buffer[SHELL_MAX_INPUT];
 static int input_len = 0;
-
-static int custom_time_enabled = 0;
-static uint8_t custom_hour = 0;
-static uint8_t custom_minute = 0;
-static uint8_t custom_second = 0;
 
 static void print_prompt() {
     set_color(0x0E);
@@ -66,6 +63,25 @@ static int parse_uint(const char* text, int* out_value) {
     return 1;
 }
 
+static int parse_bg_name(const char* text, char* out_name) {
+    if (!text || !out_name) {
+        return 0;
+    }
+
+    while (*text == ' ') {
+        text++;
+    }
+
+    int i = 0;
+    while (text[i] && text[i] != ' ' && i < (SCHED_TASK_NAME_MAX - 1)) {
+        out_name[i] = text[i];
+        i++;
+    }
+    out_name[i] = '\0';
+
+    return i > 0;
+}
+
 static void print_two_digits(int value) {
     put_char((char)('0' + (value / 10) % 10));
     put_char((char)('0' + (value % 10)));
@@ -111,25 +127,18 @@ static int day_of_week(int day, int month, int year) {
 }
 
 static void print_time_now() {
+    clock_time_t clock_now;
+    timer_get_clock(&clock_now);
+
     rtc_datetime_t now;
     rtc_read_datetime(&now);
 
-    int hour = now.hour;
-    int minute = now.minute;
-    int second = now.second;
-
-    if (custom_time_enabled) {
-        hour = custom_hour;
-        minute = custom_minute;
-        second = custom_second;
-    }
-
     print("Time: ");
-    print_two_digits(hour);
+    print_two_digits(clock_now.hour);
     put_char(':');
-    print_two_digits(minute);
+    print_two_digits(clock_now.minute);
     put_char(':');
-    print_two_digits(second);
+    print_two_digits(clock_now.second);
     print("  Date: ");
     print_two_digits(now.day);
     put_char('/');
@@ -168,10 +177,7 @@ static int parse_set_time(const char* text) {
         return 0;
     }
 
-    custom_hour = (uint8_t)h;
-    custom_minute = (uint8_t)m;
-    custom_second = (uint8_t)s;
-    custom_time_enabled = 1;
+    timer_set_clock((uint8_t)h, (uint8_t)m, (uint8_t)s);
     return 1;
 }
 
@@ -249,6 +255,31 @@ static void print_memory_map() {
     }
 }
 
+static void print_scheduler_tasks() {
+    sched_task_info_t list[SCHED_MAX_TASKS];
+    int n = scheduler_list_tasks(list, SCHED_MAX_TASKS);
+
+    if (n == 0) {
+        print("No background tasks running.\n");
+        return;
+    }
+
+    print("Background tasks:\n");
+    for (int i = 0; i < n; i++) {
+        print("  #");
+        print_int(list[i].id);
+        print(" ");
+        print(list[i].name);
+        print(" runs=");
+        print_int((int)list[i].runs);
+        print(" count=");
+        print_int((int)list[i].counter);
+        print(" last_tick=");
+        print_int((int)list[i].last_tick);
+        put_char('\n');
+    }
+}
+
 static void execute_command(const char* cmd) {
     if (cmd[0] == '\0') {
         return;
@@ -269,6 +300,11 @@ static void execute_command(const char* cmd) {
         print("  kmalloc N - allocate N bytes\n");
         print("  memmap    - show kernel memory map\n");
         print("  paging    - show paging status\n");
+        print("  ticks     - show timer ticks\n");
+        print("  uptime    - show uptime in seconds\n");
+        print("  bg run TASK|all - start background tasks\n");
+        print("  bg list   - list running background tasks\n");
+        print("  bg stop ID|TASK|all - stop background tasks\n");
         return;
     }
 
@@ -346,6 +382,95 @@ static void execute_command(const char* cmd) {
             print("enabled\n");
         } else {
             print("disabled\n");
+        }
+        return;
+    }
+
+    if (str_equals(cmd, "ticks")) {
+        print("Ticks: ");
+        print_int((int)timer_get_ticks());
+        print("  Hz: ");
+        print_int((int)timer_get_hz());
+        put_char('\n');
+        return;
+    }
+
+    if (str_equals(cmd, "uptime")) {
+        print("Uptime: ");
+        print_int((int)timer_get_uptime_seconds());
+        print(" seconds\n");
+        return;
+    }
+
+    if (str_starts_with(cmd, "bg run ")) {
+        char name[SCHED_TASK_NAME_MAX];
+        if (!parse_bg_name(cmd + 7, name)) {
+            print("Usage: bg run TASK_NAME|all\n");
+            return;
+        }
+
+        if (str_equals(name, "all")) {
+            int started = 0;
+            if (scheduler_start_named_task("task1") > 0) started++;
+            if (scheduler_start_named_task("task2") > 0) started++;
+            if (scheduler_start_named_task("task3") > 0) started++;
+            print("Started ");
+            print_int(started);
+            print(" tasks\n");
+            return;
+        }
+
+        int id = scheduler_start_named_task(name);
+        if (id > 0) {
+            print("Started ");
+            print(name);
+            print(" as #");
+            print_int(id);
+            put_char('\n');
+        } else if (id == -3) {
+            print("Task already running\n");
+        } else {
+            print("Could not start task\n");
+        }
+        return;
+    }
+
+    if (str_equals(cmd, "bg list")) {
+        print_scheduler_tasks();
+        return;
+    }
+
+    if (str_starts_with(cmd, "bg stop ")) {
+        char arg[SCHED_TASK_NAME_MAX];
+        if (!parse_bg_name(cmd + 8, arg)) {
+            print("Usage: bg stop ID|TASK_NAME|all\n");
+            return;
+        }
+
+        if (str_equals(arg, "all")) {
+            scheduler_stop_all();
+            print("All background tasks stopped\n");
+            return;
+        }
+
+        int id = 0;
+        if (parse_uint(arg, &id)) {
+            if (scheduler_stop_task_by_id(id)) {
+                print("Stopped task #");
+                print_int(id);
+                put_char('\n');
+            } else {
+                print("Task id not found\n");
+            }
+            return;
+        }
+
+        if (scheduler_stop_task_by_name(arg)) {
+            print("Stopped ");
+            print(arg);
+            put_char('\n');
+        } else {
+            print("Task not found\n");
         }
         return;
     }

@@ -6,6 +6,8 @@
 #include "shell.h"
 #include "memory.h"
 #include "paging.h"
+#include "scheduler.h"
+#include "timer.h"
 
 void kernel_main() {
     clear_screen();
@@ -19,6 +21,7 @@ void kernel_main() {
     gdt_init();
     memory_init();
     paging_init();
+    scheduler_init();
     keyboard_init();
 
     // print("Screen driver initialized.\n");
@@ -27,6 +30,7 @@ void kernel_main() {
 
     // print("Remapping PIC...\n");
     pic_remap();
+    timer_init(100);
 
     print("Enabling interrupts...\n");
     __asm__ volatile("sti");
