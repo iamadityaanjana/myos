@@ -29,8 +29,8 @@ start:
     ; Load kernel in three CHS reads:
     ;   read 17 sectors from C0/H0/S2  -> 0x1000
     ;   read 18 sectors from C0/H1/S1  -> 0x3200
-    ;   read 1  sector  from C1/H0/S1  -> 0x5600
-    ; Total = 36 sectors (18 KiB), covering current kernel size.
+    ;   read 18 sectors from C1/H0/S1  -> 0x5600
+    ; Total = 53 sectors (26.5 KiB), leaving growth headroom.
     ; ES:BX = 0x0000:0x1000
     xor ax, ax
     mov es, ax           ; ensure ES=0 for the destination address
@@ -62,9 +62,9 @@ start:
     ; Third chunk destination = 0x3200 + 18*512 = 0x5600
     mov bx, 0x5600
 
-    ; Third chunk: cylinder 1, head 0, sector 1 (1 sector)
+    ; Third chunk: cylinder 1, head 0, sectors 1..18 (18 sectors)
     mov ah, 0x02
-    mov al, 1
+    mov al, 18
     mov ch, 1
     mov cl, 1
     mov dh, 0

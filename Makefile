@@ -26,6 +26,8 @@ RTC_C    := kernel/rtc.c
 TIMER_C  := kernel/timer.c
 SCHED_C  := kernel/scheduler.c
 RAMFS_C  := kernel/ramfs.c
+DISK_C   := kernel/disk.c
+PFS_C    := kernel/pfs.c
 KERNEL_A := kernel/kernel_entry.asm
 GDT_A    := kernel/gdt_flush.asm
 IDT_A    := kernel/idt_load.asm
@@ -119,9 +121,24 @@ $(BUILD)/scheduler.o: $(SCHED_C) | $(BUILD)
 $(BUILD)/ramfs.o: $(RAMFS_C) | $(BUILD)
 	$(CC) $(CFLAGS) -c $< -o $@
 
+# ── disk object ──────────────────────────────────────────────
+$(BUILD)/disk.o: $(DISK_C) | $(BUILD)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+# ── persistent fs object ─────────────────────────────────────
+$(BUILD)/pfs.o: $(PFS_C) | $(BUILD)
+	$(CC) $(CFLAGS) -c $< -o $@
+
 # ── Link kernel into flat binary ──────────────────────────────
-$(BUILD)/kernel.bin: $(BUILD)/kernel_entry.o $(BUILD)/gdt_flush.o $(BUILD)/idt_load.o $(BUILD)/interrupt_stubs.o $(BUILD)/kernel.o $(BUILD)/screen.o $(BUILD)/io.o $(BUILD)/gdt.o $(BUILD)/idt.o $(BUILD)/isr.o $(BUILD)/keyboard.o $(BUILD)/printk.o $(BUILD)/shell.o $(BUILD)/memory.o $(BUILD)/paging.o $(BUILD)/rtc.o $(BUILD)/timer.o $(BUILD)/scheduler.o $(BUILD)/ramfs.o
+$(BUILD)/kernel.bin: $(BUILD)/kernel_entry.o $(BUILD)/gdt_flush.o $(BUILD)/idt_load.o $(BUILD)/interrupt_stubs.o $(BUILD)/kernel.o $(BUILD)/screen.o $(BUILD)/io.o $(BUILD)/gdt.o $(BUILD)/idt.o $(BUILD)/isr.o $(BUILD)/keyboard.o $(BUILD)/printk.o $(BUILD)/shell.o $(BUILD)/memory.o $(BUILD)/paging.o $(BUILD)/rtc.o $(BUILD)/timer.o $(BUILD)/scheduler.o $(BUILD)/ramfs.o $(BUILD)/disk.o $(BUILD)/pfs.o
 	$(LD) $(LDFLAGS) -o $@ $^ --oformat binary
+
+# ── Persistent data disk image (16 MiB) ─────────────────────
+$(BUILD)/data.img: | $(BUILD)
+	@if [ ! -f $@ ]; then \
+		dd if=/dev/zero of=$@ bs=1M count=16 status=none; \
+		echo "Created persistent data disk -> $@"; \
+	fi
 
 # ── Build 1.44 MB floppy image ──────────────────────────────
 # Sector 0 = bootloader (512 bytes)
@@ -139,8 +156,8 @@ $(BUILD)/os.img: $(BUILD)/boot.bin $(BUILD)/kernel.bin
 	@echo "Run with:  make run"
 
 # ── Launch in QEMU (floppy mode — no geometry issues) ─────────
-run: $(BUILD)/os.img
-	qemu-system-i386 -fda $(BUILD)/os.img
+run: $(BUILD)/os.img $(BUILD)/data.img
+	qemu-system-i386 -fda $(BUILD)/os.img -drive file=$(BUILD)/data.img,format=raw,if=ide
 
 # ── Clean ─────────────────────────────────────────────────────
 clean:

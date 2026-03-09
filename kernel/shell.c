@@ -9,6 +9,7 @@
 #include "timer.h"
 #include "scheduler.h"
 #include "ramfs.h"
+#include "pfs.h"
 
 #define SHELL_MAX_INPUT 64
 
@@ -100,6 +101,35 @@ static int parse_token(const char* text, char* out_token, int token_max) {
     out_token[i] = '\0';
 
     return i > 0;
+}
+
+static int parse_two_tokens_and_rest(const char* text, char* token1, int token1_max, const char** out_rest) {
+    if (!text || !token1 || token1_max <= 1 || !out_rest) {
+        return 0;
+    }
+
+    while (*text == ' ') {
+        text++;
+    }
+
+    int i = 0;
+    while (text[i] && text[i] != ' ' && i < (token1_max - 1)) {
+        token1[i] = text[i];
+        i++;
+    }
+    token1[i] = '\0';
+
+    if (i == 0) {
+        return 0;
+    }
+
+    text += i;
+    while (*text == ' ') {
+        text++;
+    }
+
+    *out_rest = text;
+    return 1;
 }
 
 static void print_hex_byte(uint8_t b) {
@@ -306,33 +336,40 @@ static void print_scheduler_tasks() {
     }
 }
 
-static void print_ramfs_list() {
-    int count = ramfs_count();
-    if (count == 0) {
-        print("RAMFS is empty\n");
+static void print_fs_list() {
+    pfs_file_info_t list[32];
+    int count = pfs_list(list, 32);
+
+    if (!pfs_is_ready()) {
+        print("PFS not ready (disk missing?)\n");
         return;
     }
 
-    print("RAMFS files:\n");
-    for (int i = 0; i < count; i++) {
-        ramfs_entry_t entry;
-        if (!ramfs_get_entry(i, &entry)) {
-            continue;
-        }
+    if (count == 0) {
+        print("PFS is empty\n");
+        return;
+    }
 
+    print("PFS files:\n");
+    for (int i = 0; i < count; i++) {
         print("  ");
-        print(entry.name);
+        print(list[i].name);
         print("  ");
-        print_int((int)entry.size);
+        print_int((int)list[i].size);
         print(" bytes\n");
     }
 }
 
-static void cat_ramfs_file(const char* name) {
-    const uint8_t* data = 0;
+static void cat_fs_file(const char* name) {
+    uint8_t data[512];
     uint32_t size = 0;
 
-    if (!ramfs_get_file(name, &data, &size)) {
+    if (!pfs_is_ready()) {
+        print("PFS not ready (disk missing?)\n");
+        return;
+    }
+
+    if (!pfs_read_file(name, data, sizeof(data), &size)) {
         print("cat: file not found\n");
         return;
     }
@@ -351,11 +388,16 @@ static void cat_ramfs_file(const char* name) {
     }
 }
 
-static void hexdump_ramfs_file(const char* name) {
-    const uint8_t* data = 0;
+static void hexdump_fs_file(const char* name) {
+    uint8_t data[512];
     uint32_t size = 0;
 
-    if (!ramfs_get_file(name, &data, &size)) {
+    if (!pfs_is_ready()) {
+        print("PFS not ready (disk missing?)\n");
+        return;
+    }
+
+    if (!pfs_read_file(name, data, sizeof(data), &size)) {
         print("hexdump: file not found\n");
         return;
     }
@@ -393,6 +435,73 @@ static void hexdump_ramfs_file(const char* name) {
     }
 }
 
+static void touch_fs_file(const char* name) {
+    static const uint8_t empty_data[1] = {0};
+
+    if (!pfs_is_ready()) {
+        print("PFS not ready (disk missing?)\n");
+        return;
+    }
+
+    if (!pfs_write_file(name, empty_data, 0)) {
+        print("touch: failed\n");
+        return;
+    }
+
+    print("Created ");
+    print(name);
+    put_char('\n');
+}
+
+static void write_fs_file(const char* name, const char* text) {
+    uint32_t len = 0;
+
+    if (!pfs_is_ready()) {
+        print("PFS not ready (disk missing?)\n");
+        return;
+    }
+
+    if (!text || !text[0]) {
+        print("write: text is required\n");
+        return;
+    }
+
+    while (text[len]) {
+        len++;
+        if (len > 480) {
+            print("write: max 480 bytes\n");
+            return;
+        }
+    }
+
+    if (!pfs_write_file(name, (const uint8_t*)text, len)) {
+        print("write: failed\n");
+        return;
+    }
+
+    print("Saved ");
+    print_int((int)len);
+    print(" bytes to ");
+    print(name);
+    put_char('\n');
+}
+
+static void rm_fs_file(const char* name) {
+    if (!pfs_is_ready()) {
+        print("PFS not ready (disk missing?)\n");
+        return;
+    }
+
+    if (!pfs_delete_file(name)) {
+        print("rm: file not found\n");
+        return;
+    }
+
+    print("Deleted ");
+    print(name);
+    put_char('\n');
+}
+
 static void execute_command(const char* cmd) {
     if (cmd[0] == '\0') {
         return;
@@ -415,9 +524,13 @@ static void execute_command(const char* cmd) {
         print("  paging    - show paging status\n");
         print("  ticks     - show timer ticks\n");
         print("  uptime    - show uptime in seconds\n");
-        print("  ls        - list RAMFS files\n");
-        print("  cat FILE  - print RAMFS file contents\n");
-        print("  hexdump FILE - hex view of a RAMFS file\n");
+        print("  ls        - list files\n");
+        print("  cat FILE  - print file contents\n");
+        print("  hexdump FILE - hex view of a file\n");
+        print("  touch FILE - create empty file\n");
+        print("  write FILE TEXT - save text to file\n");
+        print("  rm FILE   - delete file\n");
+        print("  rls       - list RAMFS demo files\n");
         print("  bg run TASK|all - start background tasks\n");
         print("  bg list   - list running background tasks\n");
         print("  bg stop ID|TASK|all - stop background tasks\n");
@@ -519,27 +632,79 @@ static void execute_command(const char* cmd) {
     }
 
     if (str_equals(cmd, "ls")) {
-        print_ramfs_list();
+        print_fs_list();
         return;
     }
 
     if (str_starts_with(cmd, "cat ")) {
-        char name[24];
-        if (!parse_token(cmd + 4, name, 24)) {
+        char name[PFS_NAME_MAX];
+        if (!parse_token(cmd + 4, name, PFS_NAME_MAX)) {
             print("Usage: cat FILE\n");
             return;
         }
-        cat_ramfs_file(name);
+        cat_fs_file(name);
         return;
     }
 
     if (str_starts_with(cmd, "hexdump ")) {
-        char name[24];
-        if (!parse_token(cmd + 8, name, 24)) {
+        char name[PFS_NAME_MAX];
+        if (!parse_token(cmd + 8, name, PFS_NAME_MAX)) {
             print("Usage: hexdump FILE\n");
             return;
         }
-        hexdump_ramfs_file(name);
+        hexdump_fs_file(name);
+        return;
+    }
+
+    if (str_starts_with(cmd, "touch ")) {
+        char name[PFS_NAME_MAX];
+        if (!parse_token(cmd + 6, name, PFS_NAME_MAX)) {
+            print("Usage: touch FILE\n");
+            return;
+        }
+        touch_fs_file(name);
+        return;
+    }
+
+    if (str_starts_with(cmd, "write ")) {
+        char name[PFS_NAME_MAX];
+        const char* text = 0;
+        if (!parse_two_tokens_and_rest(cmd + 6, name, PFS_NAME_MAX, &text)) {
+            print("Usage: write FILE TEXT\n");
+            return;
+        }
+        if (!text || !text[0]) {
+            print("Usage: write FILE TEXT\n");
+            return;
+        }
+        write_fs_file(name, text);
+        return;
+    }
+
+    if (str_starts_with(cmd, "rm ")) {
+        char name[PFS_NAME_MAX];
+        if (!parse_token(cmd + 3, name, PFS_NAME_MAX)) {
+            print("Usage: rm FILE\n");
+            return;
+        }
+        rm_fs_file(name);
+        return;
+    }
+
+    if (str_equals(cmd, "rls")) {
+        print("RAMFS files:\n");
+        int count = ramfs_count();
+        for (int i = 0; i < count; i++) {
+            ramfs_entry_t entry;
+            if (!ramfs_get_entry(i, &entry)) {
+                continue;
+            }
+            print("  ");
+            print(entry.name);
+            print("  ");
+            print_int((int)entry.size);
+            print(" bytes\n");
+        }
         return;
     }
 
