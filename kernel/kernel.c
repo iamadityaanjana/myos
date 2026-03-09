@@ -8,6 +8,7 @@
 #include "paging.h"
 #include "scheduler.h"
 #include "timer.h"
+#include "ramfs.h"
 
 void kernel_main() {
     clear_screen();
@@ -21,6 +22,7 @@ void kernel_main() {
     gdt_init();
     memory_init();
     paging_init();
+    ramfs_init();
     scheduler_init();
     keyboard_init();
 

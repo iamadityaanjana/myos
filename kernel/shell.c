@@ -8,6 +8,7 @@
 #include "rtc.h"
 #include "timer.h"
 #include "scheduler.h"
+#include "ramfs.h"
 
 #define SHELL_MAX_INPUT 64
 
@@ -80,6 +81,31 @@ static int parse_bg_name(const char* text, char* out_name) {
     out_name[i] = '\0';
 
     return i > 0;
+}
+
+static int parse_token(const char* text, char* out_token, int token_max) {
+    if (!text || !out_token || token_max <= 1) {
+        return 0;
+    }
+
+    while (*text == ' ') {
+        text++;
+    }
+
+    int i = 0;
+    while (text[i] && text[i] != ' ' && i < (token_max - 1)) {
+        out_token[i] = text[i];
+        i++;
+    }
+    out_token[i] = '\0';
+
+    return i > 0;
+}
+
+static void print_hex_byte(uint8_t b) {
+    static const char* hex = "0123456789ABCDEF";
+    put_char(hex[(b >> 4) & 0x0F]);
+    put_char(hex[b & 0x0F]);
 }
 
 static void print_two_digits(int value) {
@@ -280,6 +306,93 @@ static void print_scheduler_tasks() {
     }
 }
 
+static void print_ramfs_list() {
+    int count = ramfs_count();
+    if (count == 0) {
+        print("RAMFS is empty\n");
+        return;
+    }
+
+    print("RAMFS files:\n");
+    for (int i = 0; i < count; i++) {
+        ramfs_entry_t entry;
+        if (!ramfs_get_entry(i, &entry)) {
+            continue;
+        }
+
+        print("  ");
+        print(entry.name);
+        print("  ");
+        print_int((int)entry.size);
+        print(" bytes\n");
+    }
+}
+
+static void cat_ramfs_file(const char* name) {
+    const uint8_t* data = 0;
+    uint32_t size = 0;
+
+    if (!ramfs_get_file(name, &data, &size)) {
+        print("cat: file not found\n");
+        return;
+    }
+
+    for (uint32_t i = 0; i < size; i++) {
+        char c = (char)data[i];
+        if (c == '\n' || c == '\t' || (c >= 32 && c <= 126)) {
+            put_char(c);
+        } else {
+            put_char('.');
+        }
+    }
+
+    if (size == 0 || data[size - 1] != '\n') {
+        put_char('\n');
+    }
+}
+
+static void hexdump_ramfs_file(const char* name) {
+    const uint8_t* data = 0;
+    uint32_t size = 0;
+
+    if (!ramfs_get_file(name, &data, &size)) {
+        print("hexdump: file not found\n");
+        return;
+    }
+
+    for (uint32_t offset = 0; offset < size; offset += 16) {
+        print_hex(offset);
+        print(": ");
+
+        for (uint32_t i = 0; i < 16; i++) {
+            uint32_t idx = offset + i;
+            if (idx < size) {
+                print_hex_byte(data[idx]);
+            } else {
+                print("  ");
+            }
+            put_char(' ');
+        }
+
+        put_char('|');
+        for (uint32_t i = 0; i < 16; i++) {
+            uint32_t idx = offset + i;
+            if (idx < size) {
+                char c = (char)data[idx];
+                if (c >= 32 && c <= 126) {
+                    put_char(c);
+                } else {
+                    put_char('.');
+                }
+            } else {
+                put_char(' ');
+            }
+        }
+        put_char('|');
+        put_char('\n');
+    }
+}
+
 static void execute_command(const char* cmd) {
     if (cmd[0] == '\0') {
         return;
@@ -302,6 +415,9 @@ static void execute_command(const char* cmd) {
         print("  paging    - show paging status\n");
         print("  ticks     - show timer ticks\n");
         print("  uptime    - show uptime in seconds\n");
+        print("  ls        - list RAMFS files\n");
+        print("  cat FILE  - print RAMFS file contents\n");
+        print("  hexdump FILE - hex view of a RAMFS file\n");
         print("  bg run TASK|all - start background tasks\n");
         print("  bg list   - list running background tasks\n");
         print("  bg stop ID|TASK|all - stop background tasks\n");
@@ -399,6 +515,31 @@ static void execute_command(const char* cmd) {
         print("Uptime: ");
         print_int((int)timer_get_uptime_seconds());
         print(" seconds\n");
+        return;
+    }
+
+    if (str_equals(cmd, "ls")) {
+        print_ramfs_list();
+        return;
+    }
+
+    if (str_starts_with(cmd, "cat ")) {
+        char name[24];
+        if (!parse_token(cmd + 4, name, 24)) {
+            print("Usage: cat FILE\n");
+            return;
+        }
+        cat_ramfs_file(name);
+        return;
+    }
+
+    if (str_starts_with(cmd, "hexdump ")) {
+        char name[24];
+        if (!parse_token(cmd + 8, name, 24)) {
+            print("Usage: hexdump FILE\n");
+            return;
+        }
+        hexdump_ramfs_file(name);
         return;
     }
 

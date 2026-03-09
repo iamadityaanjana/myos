@@ -26,10 +26,11 @@ start:
     ; Enable A20 line via fast A20 port
     call enable_a20
 
-    ; Load kernel in two CHS reads:
+    ; Load kernel in three CHS reads:
     ;   read 17 sectors from C0/H0/S2  -> 0x1000
     ;   read 18 sectors from C0/H1/S1  -> 0x3200
-    ; Total = 35 sectors (17.5 KiB), enough for current intermediate kernel.
+    ;   read 1  sector  from C1/H0/S1  -> 0x5600
+    ; Total = 36 sectors (18 KiB), covering current kernel size.
     ; ES:BX = 0x0000:0x1000
     xor ax, ax
     mov es, ax           ; ensure ES=0 for the destination address
@@ -54,6 +55,19 @@ start:
     mov ch, 0
     mov cl, 1
     mov dh, 1
+    mov dl, [boot_drive]
+    int 0x13
+    jc disk_error
+
+    ; Third chunk destination = 0x3200 + 18*512 = 0x5600
+    mov bx, 0x5600
+
+    ; Third chunk: cylinder 1, head 0, sector 1 (1 sector)
+    mov ah, 0x02
+    mov al, 1
+    mov ch, 1
+    mov cl, 1
+    mov dh, 0
     mov dl, [boot_drive]
     int 0x13
     jc disk_error
