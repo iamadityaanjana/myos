@@ -1,7 +1,15 @@
 [BITS 16]
 [ORG 0x7C00]
 
+KERNEL_MAX_SECTORS equ 256
+KERNEL_LOAD_SEGMENT equ 0x1000
+KERNEL_LOAD_OFFSET  equ 0x0000
+KERNEL_LOAD_ADDR    equ 0x10000
+
 start:
+    mov al, 'A'
+    out 0xE9, al
+
     ; BIOS puts boot drive number in DL — save it before we touch anything
     mov [boot_drive], dl
 
@@ -26,51 +34,68 @@ start:
     ; Enable A20 line via fast A20 port
     call enable_a20
 
-    ; Load kernel in three CHS reads:
-    ;   read 17 sectors from C0/H0/S2  -> 0x1000
-    ;   read 18 sectors from C0/H1/S1  -> 0x3200
-    ;   read 18 sectors from C1/H0/S1  -> 0x5600
-    ; Total = 53 sectors (26.5 KiB), leaving growth headroom.
-    ; ES:BX = 0x0000:0x1000
-    xor ax, ax
-    mov es, ax           ; ensure ES=0 for the destination address
-    mov bx, 0x1000       ; physical address = ES*16 + BX = 0x1000
+    ; Load kernel from floppy using CHS progression.
+    ; We intentionally read a fixed upper bound from sector 1 onward
+    ; so kernel growth does not break boot as quickly.
+    mov ax, KERNEL_LOAD_SEGMENT
+    mov es, ax
+    mov bx, KERNEL_LOAD_OFFSET
 
-    ; First chunk: head 0, sectors 2..18 (17 sectors)
-    mov ah, 0x02         ; BIOS read
-    mov al, 17           ; sectors to read
-    mov ch, 0            ; cylinder 0
-    mov cl, 2            ; start at sector 2
-    mov dh, 0            ; head 0
-    mov dl, [boot_drive] ; drive number saved from BIOS
-    int 0x13
-    jc disk_error
+    mov word [sectors_remaining], KERNEL_MAX_SECTORS
+    mov byte [chs_cylinder], 0
+    mov byte [chs_head], 0
+    mov byte [chs_sector], 2      ; first kernel sector is LBA 1 => CHS 0/0/2
 
-    ; Second chunk destination = 0x1000 + 17*512 = 0x3200
-    mov bx, 0x3200
+.read_kernel_loop:
+    mov al, 'R'
+    out 0xE9, al
 
-    ; Second chunk: head 1, sectors 1..18 (18 sectors)
+    cmp word [sectors_remaining], 0
+    je .kernel_loaded
+
+    mov ch, [chs_cylinder]
+    mov dh, [chs_head]
+    mov cl, [chs_sector]
     mov ah, 0x02
-    mov al, 18
-    mov ch, 0
-    mov cl, 1
-    mov dh, 1
+    mov al, 1
     mov dl, [boot_drive]
     int 0x13
     jc disk_error
 
-    ; Third chunk destination = 0x3200 + 18*512 = 0x5600
-    mov bx, 0x5600
+    add bx, 512
+    jnc .no_segment_bump
+    mov ax, es
+    add ax, 0x1000
+    mov es, ax
 
-    ; Third chunk: cylinder 1, head 0, sectors 1..18 (18 sectors)
-    mov ah, 0x02
-    mov al, 18
-    mov ch, 1
-    mov cl, 1
-    mov dh, 0
-    mov dl, [boot_drive]
-    int 0x13
-    jc disk_error
+.no_segment_bump:
+    dec word [sectors_remaining]
+
+    inc byte [chs_sector]
+    cmp byte [chs_sector], 19
+    jb .read_kernel_loop
+
+    mov byte [chs_sector], 1
+    xor byte [chs_head], 1
+    cmp byte [chs_head], 0
+    jne .read_kernel_loop
+
+.next_cylinder:
+    inc byte [chs_cylinder]
+    cmp byte [chs_cylinder], 80
+    jb .read_kernel_loop
+    jmp disk_error
+
+.kernel_loaded:
+    mov al, 'L'
+    out 0xE9, al
+
+    mov si, msg_loaded
+    call print16
+
+    ; Enter graphics mode 13h (320x200x256 linear framebuffer at 0xA0000).
+    mov ax, 0x0013
+    int 0x10
 
     ; Disable interrupts before touching GDT/CR0 — no IDT exists in PM yet
     cli
@@ -134,19 +159,31 @@ gdt_descriptor:
 ; ── 32-bit Protected Mode entry ───────────────────────────────
 [BITS 32]
 pm_entry:
+    mov al, 'P'
+    out 0xE9, al
+
     mov ax, 0x10            ; data segment selector
     mov ds, ax
     mov es, ax
     mov fs, ax
     mov gs, ax
     mov ss, ax
-    mov esp, 0x90000        ; stack below 640 KB
+    mov esp, 0x70000        ; stack in safe conventional RAM region
 
-    jmp 0x1000              ; jump to loaded kernel binary
+    mov al, 'J'
+    out 0xE9, al
+
+    mov eax, KERNEL_LOAD_ADDR
+    jmp eax                 ; absolute jump to loaded kernel binary
 
 msg_boot     db "Booting MyOS...", 13, 10, 0
+msg_loaded   db "Kernel loaded", 13, 10, 0
 msg_disk_err db "Disk read error!", 13, 10, 0
 boot_drive   db 0
+sectors_remaining dw 0
+chs_cylinder db 0
+chs_head db 0
+chs_sector db 0
 
 times 510 - ($ - $$) db 0
 dw 0xAA55

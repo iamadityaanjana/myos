@@ -13,6 +13,7 @@ void put_char(char c);
 void print(const char* str);
 void set_color(uint8_t color);
 void update_cursor();
+void set_cursor_enabled(int enabled);
 void scroll_view_up(int lines);
 void scroll_view_down(int lines);
 void draw_char_at(int row, int col, char c, uint8_t color);

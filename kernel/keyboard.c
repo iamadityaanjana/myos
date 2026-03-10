@@ -1,6 +1,7 @@
 #include "io.h"
 #include "screen.h"
 #include "shell.h"
+#include "keyboard.h"
 #include "memory.h"
 
 #define KBD_QUEUE_SIZE 64
@@ -11,6 +12,8 @@ static int extended_prefix = 0;
 static volatile uint8_t* scancode_queue = 0;
 static volatile uint8_t queue_head = 0;
 static volatile uint8_t queue_tail = 0;
+static keyboard_char_handler_t char_handler = 0;
+static keyboard_scancode_handler_t scancode_handler = 0;
 
 static const char keymap[128] = {
     0,
@@ -58,6 +61,10 @@ static void process_scancode(uint8_t scancode) {
     if (scancode == 0xE0) {
         extended_prefix = 1;
         return;
+    }
+
+    if (scancode_handler) {
+        scancode_handler(scancode, extended_prefix);
     }
 
     if (extended_prefix) {
@@ -108,7 +115,11 @@ static void process_scancode(uint8_t scancode) {
     }
 
     if (c != 0) {
-        shell_input_char(c);
+        if (char_handler) {
+            char_handler(c);
+        } else {
+            shell_input_char(c);
+        }
     }
 }
 
@@ -143,4 +154,12 @@ void keyboard_process_pending() {
         queue_tail = (uint8_t)((queue_tail + 1) % KBD_QUEUE_SIZE);
         process_scancode(scancode);
     }
+}
+
+void keyboard_set_char_handler(keyboard_char_handler_t handler) {
+    char_handler = handler;
+}
+
+void keyboard_set_scancode_handler(keyboard_scancode_handler_t handler) {
+    scancode_handler = handler;
 }

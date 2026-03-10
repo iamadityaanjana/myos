@@ -11,6 +11,7 @@ static int view_top_line = 0;
 static uint8_t current_color = 0x07;
 static int batch_depth = 0;
 static int pending_render = 0;
+static int cursor_enabled = 1;
 
 static uint16_t make_cell(char c) {
     return (uint16_t)((current_color << 8) | (uint8_t)c);
@@ -80,6 +81,10 @@ static int is_view_at_bottom() {
 }
 
 void update_cursor() {
+    if (!cursor_enabled) {
+        return;
+    }
+
     int visible_row = cursor_row - view_top_line;
     uint16_t pos;
 
@@ -94,6 +99,22 @@ void update_cursor() {
 
     outb(0x3D4, 0x0E);
     outb(0x3D5, (uint8_t)((pos >> 8) & 0xFF));
+}
+
+void set_cursor_enabled(int enabled) {
+    cursor_enabled = enabled ? 1 : 0;
+
+    if (!cursor_enabled) {
+        outb(0x3D4, 0x0A);
+        outb(0x3D5, 0x20);
+        return;
+    }
+
+    outb(0x3D4, 0x0A);
+    outb(0x3D5, 0x0E);
+    outb(0x3D4, 0x0B);
+    outb(0x3D5, 0x0F);
+    update_cursor();
 }
 
 void clear_screen() {

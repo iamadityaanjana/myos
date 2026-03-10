@@ -30,11 +30,42 @@ static int fs_window_h = 12;
 static int fs_drag_active = 0;
 static int fs_drag_off_x = 0;
 static int fs_drag_off_y = 0;
+static int fs_resize_active = 0;
 
 static int context_visible = 0;
 static int context_x = 0;
 static int context_y = 0;
 static const char* context_target = 0;
+
+static const char* g_shell_help_lines[] = {
+    "Commands:",
+    "  help      - list commands",
+    "  clear     - clear screen",
+    "  about     - about MyOS",
+    "  shutdown  - power off emulator",
+    "  reboot    - reboot CPU",
+    "  echo TXT  - print text",
+    "  time      - show current time/date",
+    "  set time HH:MM:SS - override displayed time",
+    "  calendar  - show current month calendar",
+    "  heap      - show heap usage",
+    "  kmalloc N - allocate N bytes",
+    "  memmap    - show kernel memory map",
+    "  paging    - show paging status",
+    "  ticks     - show timer ticks",
+    "  uptime    - show uptime in seconds",
+    "  ls        - list files",
+    "  cat FILE  - print file contents",
+    "  hexdump FILE - hex view of a file",
+    "  touch FILE - create empty file",
+    "  write FILE TEXT - save text to file",
+    "  rm FILE   - delete file",
+    "  rls       - list RAMFS demo files",
+    "  desktop   - open desktop mode",
+    "  bg run TASK|all - start background tasks",
+    "  bg list   - list running background tasks",
+    "  bg stop ID|TASK|all - stop background tasks"
+};
 
 static void desktop_redraw();
 
@@ -204,6 +235,7 @@ static void desktop_draw_fs_window() {
     fill_rect(fs_window_y, fs_window_x + 1, 1, fs_window_w - 2, ' ', 0x1F);
     draw_text_at(fs_window_y, fs_window_x + 2, "Filesystem", 0x1F);
     draw_text_at(fs_window_y, fs_window_x + fs_window_w - 6, "[X]", 0x4F);
+    draw_char_at(fs_window_y + fs_window_h - 1, fs_window_x + fs_window_w - 2, '#', 0x4F);
 
     pfs_file_info_t list[8];
     int count = pfs_list(list, 8);
@@ -268,11 +300,14 @@ static void enter_desktop_mode() {
     desktop_mode = 1;
     context_visible = 0;
     fs_drag_active = 0;
+    fs_resize_active = 0;
+    set_cursor_enabled(0);
     desktop_redraw();
 }
 
 static void exit_desktop_mode() {
     desktop_mode = 0;
+    set_cursor_enabled(1);
     clear_screen();
     print("Exited desktop mode\n");
     print_prompt();
@@ -654,33 +689,11 @@ static void execute_command(const char* cmd) {
     }
 
     if (str_equals(cmd, "help")) {
-        print("Commands:\n");
-        print("  help      - list commands\n");
-        print("  clear     - clear screen\n");
-        print("  about     - about MyOS\n");
-        print("  shutdown  - power off emulator\n");
-        print("  reboot    - reboot CPU\n");
-        print("  echo TXT  - print text\n");
-        print("  time      - show current time/date\n");
-        print("  set time HH:MM:SS - override displayed time\n");
-        print("  calendar  - show current month calendar\n");
-        print("  heap      - show heap usage\n");
-        print("  kmalloc N - allocate N bytes\n");
-        print("  memmap    - show kernel memory map\n");
-        print("  paging    - show paging status\n");
-        print("  ticks     - show timer ticks\n");
-        print("  uptime    - show uptime in seconds\n");
-        print("  ls        - list files\n");
-        print("  cat FILE  - print file contents\n");
-        print("  hexdump FILE - hex view of a file\n");
-        print("  touch FILE - create empty file\n");
-        print("  write FILE TEXT - save text to file\n");
-        print("  rm FILE   - delete file\n");
-        print("  rls       - list RAMFS demo files\n");
-        print("  desktop   - open desktop mode\n");
-        print("  bg run TASK|all - start background tasks\n");
-        print("  bg list   - list running background tasks\n");
-        print("  bg stop ID|TASK|all - stop background tasks\n");
+        int lines = (int)(sizeof(g_shell_help_lines) / sizeof(g_shell_help_lines[0]));
+        for (int i = 0; i < lines; i++) {
+            print(g_shell_help_lines[i]);
+            put_char('\n');
+        }
         return;
     }
 
@@ -956,6 +969,23 @@ static void execute_command(const char* cmd) {
     print("\nType 'help' to list commands.\n");
 }
 
+int shell_get_help_lines(const char** out_lines, int max_lines) {
+    int total = (int)(sizeof(g_shell_help_lines) / sizeof(g_shell_help_lines[0]));
+    if (!out_lines || max_lines <= 0) {
+        return total;
+    }
+
+    int n = total < max_lines ? total : max_lines;
+    for (int i = 0; i < n; i++) {
+        out_lines[i] = g_shell_help_lines[i];
+    }
+    return n;
+}
+
+void shell_execute_command_direct(const char* cmd) {
+    execute_command(cmd);
+}
+
 void shell_init() {
     input_len = 0;
     print_prompt();
@@ -1019,7 +1049,7 @@ void shell_mouse_event(int x, int y,
     desktop_mouse_x = x;
     desktop_mouse_y = y;
 
-    int needs_redraw = (old_x != x) || (old_y != y) || left_released || right_released || fs_drag_active;
+    int needs_redraw = (old_x != x) || (old_y != y) || left_released || right_released || fs_drag_active || fs_resize_active;
 
     if (fs_window_open && left_down &&
         in_rect(x, y, fs_window_x + 1, fs_window_y, fs_window_w - 8, 1) &&
@@ -1029,15 +1059,38 @@ void shell_mouse_event(int x, int y,
         fs_drag_off_y = y - fs_window_y;
     }
 
+    if (fs_window_open && left_down &&
+        in_rect(x, y, fs_window_x + fs_window_w - 2, fs_window_y + fs_window_h - 1, 2, 1) &&
+        !fs_drag_active) {
+        fs_resize_active = 1;
+    }
+
     if (fs_drag_active && left_down) {
         fs_window_x = x - fs_drag_off_x;
         fs_window_y = y - fs_drag_off_y;
         needs_redraw = 1;
     }
 
+    if (fs_resize_active && left_down) {
+        int new_w = (x - fs_window_x) + 2;
+        int new_h = (y - fs_window_y) + 1;
+
+        if (new_w < 20) new_w = 20;
+        if (new_h < 8) new_h = 8;
+        if (new_w > 60) new_w = 60;
+        if (new_h > 18) new_h = 18;
+
+        fs_window_w = new_w;
+        fs_window_h = new_h;
+        needs_redraw = 1;
+    }
+
     if (left_released) {
         if (fs_drag_active) {
             fs_drag_active = 0;
+        }
+        if (fs_resize_active) {
+            fs_resize_active = 0;
         }
 
         if (fs_window_open && in_rect(x, y, fs_window_x + fs_window_w - 6, fs_window_y, 5, 1)) {
