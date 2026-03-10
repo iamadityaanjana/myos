@@ -103,9 +103,9 @@ void pic_remap() {
     outb(0xA1, 0x01);
     io_wait();
 
-    outb(0x21, 0xFC);
+    outb(0x21, 0xF8);
     io_wait();
-    outb(0xA1, 0xFF);
+    outb(0xA1, 0xEF);
     io_wait();
 }
 

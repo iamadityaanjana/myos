@@ -10,6 +10,7 @@
 #include "timer.h"
 #include "ramfs.h"
 #include "pfs.h"
+#include "mouse.h"
 
 void kernel_main() {
     clear_screen();
@@ -27,6 +28,7 @@ void kernel_main() {
     pfs_init();
     scheduler_init();
     keyboard_init();
+    mouse_init();
 
     // print("Screen driver initialized.\n");
     // print("Setting up IDT...\n");
@@ -54,5 +56,6 @@ void kernel_main() {
     while (1) {
         __asm__ volatile("hlt");
         keyboard_process_pending();
+        mouse_process_pending();
     }
 }

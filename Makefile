@@ -28,6 +28,7 @@ SCHED_C  := kernel/scheduler.c
 RAMFS_C  := kernel/ramfs.c
 DISK_C   := kernel/disk.c
 PFS_C    := kernel/pfs.c
+MOUSE_C  := kernel/mouse.c
 KERNEL_A := kernel/kernel_entry.asm
 GDT_A    := kernel/gdt_flush.asm
 IDT_A    := kernel/idt_load.asm
@@ -129,8 +130,12 @@ $(BUILD)/disk.o: $(DISK_C) | $(BUILD)
 $(BUILD)/pfs.o: $(PFS_C) | $(BUILD)
 	$(CC) $(CFLAGS) -c $< -o $@
 
+# ── mouse object ─────────────────────────────────────────────
+$(BUILD)/mouse.o: $(MOUSE_C) | $(BUILD)
+	$(CC) $(CFLAGS) -c $< -o $@
+
 # ── Link kernel into flat binary ──────────────────────────────
-$(BUILD)/kernel.bin: $(BUILD)/kernel_entry.o $(BUILD)/gdt_flush.o $(BUILD)/idt_load.o $(BUILD)/interrupt_stubs.o $(BUILD)/kernel.o $(BUILD)/screen.o $(BUILD)/io.o $(BUILD)/gdt.o $(BUILD)/idt.o $(BUILD)/isr.o $(BUILD)/keyboard.o $(BUILD)/printk.o $(BUILD)/shell.o $(BUILD)/memory.o $(BUILD)/paging.o $(BUILD)/rtc.o $(BUILD)/timer.o $(BUILD)/scheduler.o $(BUILD)/ramfs.o $(BUILD)/disk.o $(BUILD)/pfs.o
+$(BUILD)/kernel.bin: $(BUILD)/kernel_entry.o $(BUILD)/gdt_flush.o $(BUILD)/idt_load.o $(BUILD)/interrupt_stubs.o $(BUILD)/kernel.o $(BUILD)/screen.o $(BUILD)/io.o $(BUILD)/gdt.o $(BUILD)/idt.o $(BUILD)/isr.o $(BUILD)/keyboard.o $(BUILD)/printk.o $(BUILD)/shell.o $(BUILD)/memory.o $(BUILD)/paging.o $(BUILD)/rtc.o $(BUILD)/timer.o $(BUILD)/scheduler.o $(BUILD)/ramfs.o $(BUILD)/disk.o $(BUILD)/pfs.o $(BUILD)/mouse.o
 	$(LD) $(LDFLAGS) -o $@ $^ --oformat binary
 
 # ── Persistent data disk image (16 MiB) ─────────────────────

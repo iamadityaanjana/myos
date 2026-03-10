@@ -16,6 +16,28 @@
 static char input_buffer[SHELL_MAX_INPUT];
 static int input_len = 0;
 
+static int desktop_mode = 0;
+static int desktop_mouse_x = 4;
+static int desktop_mouse_y = 4;
+static uint32_t last_left_click_tick = 0;
+static uint32_t last_desktop_redraw_tick = 0;
+
+static int fs_window_open = 0;
+static int fs_window_x = 25;
+static int fs_window_y = 6;
+static int fs_window_w = 36;
+static int fs_window_h = 12;
+static int fs_drag_active = 0;
+static int fs_drag_off_x = 0;
+static int fs_drag_off_y = 0;
+
+static int context_visible = 0;
+static int context_x = 0;
+static int context_y = 0;
+static const char* context_target = 0;
+
+static void desktop_redraw();
+
 static void print_prompt() {
     set_color(0x0E);
     print("MyOS> ");
@@ -130,6 +152,130 @@ static int parse_two_tokens_and_rest(const char* text, char* token1, int token1_
 
     *out_rest = text;
     return 1;
+}
+
+static void draw_box(int x, int y, int w, int h, uint8_t border_color, uint8_t fill_color) {
+    if (w < 2 || h < 2) {
+        return;
+    }
+
+    fill_rect(y, x, h, w, ' ', fill_color);
+
+    for (int i = 0; i < w; i++) {
+        draw_char_at(y, x + i, '-', border_color);
+        draw_char_at(y + h - 1, x + i, '-', border_color);
+    }
+    for (int i = 0; i < h; i++) {
+        draw_char_at(y + i, x, '|', border_color);
+        draw_char_at(y + i, x + w - 1, '|', border_color);
+    }
+
+    draw_char_at(y, x, '+', border_color);
+    draw_char_at(y, x + w - 1, '+', border_color);
+    draw_char_at(y + h - 1, x, '+', border_color);
+    draw_char_at(y + h - 1, x + w - 1, '+', border_color);
+}
+
+static int in_rect(int x, int y, int rx, int ry, int rw, int rh) {
+    return x >= rx && x < (rx + rw) && y >= ry && y < (ry + rh);
+}
+
+static void desktop_draw_icons() {
+    draw_box(4, 3, 14, 6, 0x1F, 0x17);
+    draw_text_at(5, 8, "S", 0x1E);
+    draw_text_at(7, 6, "Shell", 0x1F);
+
+    draw_box(22, 3, 14, 6, 0x1F, 0x17);
+    draw_text_at(5, 26, "F", 0x1E);
+    draw_text_at(7, 24, "Files", 0x1F);
+}
+
+static void desktop_draw_fs_window() {
+    if (!fs_window_open) {
+        return;
+    }
+
+    if (fs_window_x < 1) fs_window_x = 1;
+    if (fs_window_y < 1) fs_window_y = 1;
+    if (fs_window_x + fs_window_w > 79) fs_window_x = 79 - fs_window_w;
+    if (fs_window_y + fs_window_h > 24) fs_window_y = 24 - fs_window_h;
+
+    draw_box(fs_window_x, fs_window_y, fs_window_w, fs_window_h, 0x0F, 0x70);
+    fill_rect(fs_window_y, fs_window_x + 1, 1, fs_window_w - 2, ' ', 0x1F);
+    draw_text_at(fs_window_y, fs_window_x + 2, "Filesystem", 0x1F);
+    draw_text_at(fs_window_y, fs_window_x + fs_window_w - 6, "[X]", 0x4F);
+
+    pfs_file_info_t list[8];
+    int count = pfs_list(list, 8);
+
+    if (!pfs_is_ready()) {
+        draw_text_at(fs_window_y + 2, fs_window_x + 2, "PFS not ready", 0x70);
+        return;
+    }
+
+    if (count == 0) {
+        draw_text_at(fs_window_y + 2, fs_window_x + 2, "No files", 0x70);
+        return;
+    }
+
+    for (int i = 0; i < count && i < (fs_window_h - 3); i++) {
+        draw_text_at(fs_window_y + 2 + i, fs_window_x + 2, list[i].name, 0x70);
+    }
+}
+
+static void desktop_draw_context_menu() {
+    if (!context_visible) {
+        return;
+    }
+
+    int w = 22;
+    int h = 5;
+    int x = context_x;
+    int y = context_y;
+
+    if (x + w > 79) x = 79 - w;
+    if (y + h > 24) y = 24 - h;
+    if (x < 0) x = 0;
+    if (y < 0) y = 0;
+
+    draw_box(x, y, w, h, 0x0F, 0x71);
+    draw_text_at(y + 1, x + 2, "Right click menu", 0x1F);
+    if (context_target) {
+        draw_text_at(y + 2, x + 2, context_target, 0x71);
+    }
+    draw_text_at(y + 3, x + 2, "Double-click to open", 0x71);
+}
+
+static void desktop_redraw() {
+    screen_begin_batch();
+
+    fill_rect(0, 0, 25, 80, ' ', 0x17);
+
+    fill_rect(0, 0, 1, 80, ' ', 0x1F);
+    draw_text_at(0, 2, "MyOS Desktop - Double click icons, right click for options, ESC to exit", 0x1F);
+
+    desktop_draw_icons();
+    desktop_draw_fs_window();
+    desktop_draw_context_menu();
+
+    draw_char_at(desktop_mouse_y, desktop_mouse_x, '@', 0x4F);
+
+    screen_end_batch();
+    last_desktop_redraw_tick = timer_get_ticks();
+}
+
+static void enter_desktop_mode() {
+    desktop_mode = 1;
+    context_visible = 0;
+    fs_drag_active = 0;
+    desktop_redraw();
+}
+
+static void exit_desktop_mode() {
+    desktop_mode = 0;
+    clear_screen();
+    print("Exited desktop mode\n");
+    print_prompt();
 }
 
 static void print_hex_byte(uint8_t b) {
@@ -531,9 +677,15 @@ static void execute_command(const char* cmd) {
         print("  write FILE TEXT - save text to file\n");
         print("  rm FILE   - delete file\n");
         print("  rls       - list RAMFS demo files\n");
+        print("  desktop   - open desktop mode\n");
         print("  bg run TASK|all - start background tasks\n");
         print("  bg list   - list running background tasks\n");
         print("  bg stop ID|TASK|all - stop background tasks\n");
+        return;
+    }
+
+    if (str_equals(cmd, "desktop")) {
+        enter_desktop_mode();
         return;
     }
 
@@ -810,6 +962,13 @@ void shell_init() {
 }
 
 void shell_input_char(char c) {
+    if (desktop_mode) {
+        if (c == 27) {
+            exit_desktop_mode();
+        }
+        return;
+    }
+
     if (c == '\t') {
         return;
     }
@@ -840,5 +999,83 @@ void shell_input_char(char c) {
         input_buffer[input_len] = c;
         input_len++;
         put_char(c);
+    }
+}
+
+void shell_mouse_event(int x, int y,
+                       int left_down, int right_down,
+                       int left_pressed, int left_released,
+                       int right_pressed, int right_released) {
+    (void)right_down;
+    (void)left_pressed;
+    (void)right_pressed;
+
+    if (!desktop_mode) {
+        return;
+    }
+
+    int old_x = desktop_mouse_x;
+    int old_y = desktop_mouse_y;
+    desktop_mouse_x = x;
+    desktop_mouse_y = y;
+
+    int needs_redraw = (old_x != x) || (old_y != y) || left_released || right_released || fs_drag_active;
+
+    if (fs_window_open && left_down &&
+        in_rect(x, y, fs_window_x + 1, fs_window_y, fs_window_w - 8, 1) &&
+        !fs_drag_active) {
+        fs_drag_active = 1;
+        fs_drag_off_x = x - fs_window_x;
+        fs_drag_off_y = y - fs_window_y;
+    }
+
+    if (fs_drag_active && left_down) {
+        fs_window_x = x - fs_drag_off_x;
+        fs_window_y = y - fs_drag_off_y;
+        needs_redraw = 1;
+    }
+
+    if (left_released) {
+        if (fs_drag_active) {
+            fs_drag_active = 0;
+        }
+
+        if (fs_window_open && in_rect(x, y, fs_window_x + fs_window_w - 6, fs_window_y, 5, 1)) {
+            fs_window_open = 0;
+        }
+
+        uint32_t now = timer_get_ticks();
+        int is_double = (now - last_left_click_tick) <= 30;
+        last_left_click_tick = now;
+
+        if (is_double && in_rect(x, y, 22, 3, 14, 6)) {
+            fs_window_open = 1;
+            context_visible = 0;
+            needs_redraw = 1;
+        }
+
+        if (is_double && in_rect(x, y, 4, 3, 14, 6)) {
+            exit_desktop_mode();
+            return;
+        }
+    }
+
+    if (right_released) {
+        context_x = x;
+        context_y = y;
+        context_visible = 1;
+        if (in_rect(x, y, 22, 3, 14, 6)) {
+            context_target = "Files icon options";
+        } else if (in_rect(x, y, 4, 3, 14, 6)) {
+            context_target = "Shell icon options";
+        } else {
+            context_target = "Desktop options";
+        }
+        needs_redraw = 1;
+    }
+
+    uint32_t now_tick = timer_get_ticks();
+    if (needs_redraw && (now_tick - last_desktop_redraw_tick >= 2 || left_released || right_released)) {
+        desktop_redraw();
     }
 }

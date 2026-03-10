@@ -3,6 +3,7 @@
 #include "screen.h"
 #include "printk.h"
 #include "keyboard.h"
+#include "mouse.h"
 #include "timer.h"
 #include "scheduler.h"
 
@@ -71,6 +72,10 @@ uint32_t irq_handler(registers_t* regs) {
 
     if (regs->int_no == 33) {
         keyboard_irq_handler();
+    }
+
+    if (regs->int_no == 44) {
+        mouse_irq_handler();
     }
 
     if (regs->int_no >= 40) {
